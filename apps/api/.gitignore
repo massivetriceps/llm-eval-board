@@ -1,3 +1,4 @@
 
 # NestJS Observe key pair
 .env
+/src/generated
