@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { envNumber } from '../common/env';
 import { RetryFailure, withRetry } from '../common/retry';
 import { LlmCallError } from '../llm/llm.errors';
 import { LlmService, type ModelCallConfig } from '../llm/llm.service';
+import { llmRetryOptions } from '../llm/retry-policy';
 import {
   buildJudgePrompt,
   parseJudgeVerdict,
@@ -78,11 +78,7 @@ export class ScoringService {
     try {
       const { value } = await withRetry(
         () => limit(() => this.llm.generate(judge, prompt)),
-        {
-          maxAttempts: envNumber('LLM_MAX_ATTEMPTS', 4),
-          baseDelayMs: envNumber('LLM_RETRY_BASE_MS', 1000),
-          maxDelayMs: envNumber('LLM_RETRY_MAX_MS', 15_000),
-        },
+        llmRetryOptions(),
         (error) => error instanceof LlmCallError && error.retryable,
       );
       const verdict = parseJudgeVerdict(value.text);

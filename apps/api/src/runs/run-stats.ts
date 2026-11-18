@@ -19,6 +19,9 @@ export interface RunMetrics {
   // 채점된 결과의 평균 점수 (0~1). 채점된 결과가 없으면 null
   avgScore: number | null;
   scoredCount: number;
+  // 전체 질문 기준 정답률 (0~1). 실패해서 점수가 없는 질문은 0점으로 센다.
+  // avgScore 는 성공분만의 평균이라, 성공률이 낮은 실행끼리 비교하면 왜곡된다
+  overallScore: number | null;
   // 근거 글귀가 검색 결과에 들어 있던 비율 (0~1). 근거가 있는 질문이 없으면 null
   hitRate: number | null;
   // 생성 비용 + 채점(심판) 비용
@@ -62,6 +65,10 @@ export function summarizeResults(rows: ResultRow[]): RunMetrics {
     successRate: rows.length > 0 ? succeeded.length / rows.length : 0,
     avgScore: mean(scores),
     scoredCount: scores.length,
+    overallScore:
+      scores.length > 0
+        ? scores.reduce((sum, value) => sum + value, 0) / rows.length
+        : null,
     hitRate: hits.length > 0 ? hits.filter(Boolean).length / hits.length : null,
     costUsd: generationCost + judgeCostUsd,
     judgeCostUsd,

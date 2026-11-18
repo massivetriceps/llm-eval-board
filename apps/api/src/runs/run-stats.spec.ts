@@ -51,6 +51,22 @@ describe('summarizeResults', () => {
     expect(metrics.avgAttempts).toBe(2);
   });
 
+  it('overallScore 는 실패한 질문을 0점으로 센다', () => {
+    const metrics = summarizeResults([
+      row({ score: 1 }),
+      row({ score: 1 }),
+      row({ status: 'FAILED', latencyMs: 0 }),
+      row({ status: 'FAILED', latencyMs: 0 }),
+    ]);
+    // 성공분만 보면 100% 지만, 전체 4문항 중 2문항만 맞힌 것이다
+    expect(metrics.avgScore).toBe(1);
+    expect(metrics.overallScore).toBe(0.5);
+  });
+
+  it('채점하지 않았으면 overallScore 는 null 이다', () => {
+    expect(summarizeResults([row(), row()]).overallScore).toBeNull();
+  });
+
   it('지연시간은 실패한 행을 빼고 계산한다', () => {
     const metrics = summarizeResults([
       row({ latencyMs: 100 }),

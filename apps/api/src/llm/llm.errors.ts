@@ -8,10 +8,20 @@ export class LlmCallError extends Error {
     readonly status?: number,
     // 실행 전체를 중단해야 하는 오류인가 (키 오류, 모델 없음 등)
     readonly fatal = false,
+    // 제공자가 "이만큼 기다렸다가 다시 보내라"고 알려 준 시간(ms)
+    readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = 'LlmCallError';
   }
+}
+
+// 429 응답에 담긴 대기 시간을 읽는다. 예: "retryDelay":"29s", "Please retry in 29.49s."
+export function parseRetryAfterMs(message: string): number | undefined {
+  const match =
+    /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(message) ??
+    /retry in (\d+(?:\.\d+)?)\s*s/i.exec(message);
+  return match ? Math.ceil(Number(match[1]) * 1000) : undefined;
 }
 
 function extractStatus(error: unknown, message: string): number | undefined {
@@ -42,5 +52,11 @@ export function toLlmCallError(error: unknown): LlmCallError {
   }
   const retryable = status === 408 || status === 429 || status >= 500;
   const fatal = status === 401 || status === 403 || status === 404;
-  return new LlmCallError(message, retryable, status, fatal);
+  return new LlmCallError(
+    message,
+    retryable,
+    status,
+    fatal,
+    status === 429 ? parseRetryAfterMs(message) : undefined,
+  );
 }

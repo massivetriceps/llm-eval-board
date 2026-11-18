@@ -2,6 +2,10 @@ export interface RetryOptions {
   maxAttempts: number;
   baseDelayMs: number;
   maxDelayMs: number;
+  // 오류가 "n ms 뒤에 다시 하라"고 알려 주면 그만큼은 기다린다 (백오프보다 길 때만)
+  retryAfterMs?: (error: unknown) => number | undefined;
+  // 위 힌트를 따르는 최대 대기 시간. 하루 한도처럼 너무 긴 대기는 따르지 않는다
+  maxRetryAfterMs?: number;
 }
 
 export class RetryFailure extends Error {
@@ -49,7 +53,11 @@ export async function withRetry<T>(
       if (attempt >= options.maxAttempts || !shouldRetry(error)) {
         throw new RetryFailure(attempt, error);
       }
-      const delayMs = backoffDelay(attempt, options);
+      let delayMs = backoffDelay(attempt, options);
+      const hint = options.retryAfterMs?.(error);
+      if (hint !== undefined) {
+        delayMs = Math.max(delayMs, Math.min(hint, options.maxRetryAfterMs ?? 120_000));
+      }
       onRetry?.(attempt, delayMs, error);
       await sleep(delayMs);
     }

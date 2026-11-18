@@ -49,7 +49,8 @@ interface MetricLine {
 }
 
 const METRIC_LINES: MetricLine[] = [
-  { label: '평균 점수', value: (m) => formatPercent(m.avgScore) },
+  { label: '정답률 (전체 기준, 실패=0점)', value: (m) => formatPercent(m.overallScore) },
+  { label: '평균 점수 (응답 성공분만)', value: (m) => formatPercent(m.avgScore) },
   { label: '성공률', value: (m) => formatPercent(m.successRate) },
   { label: '검색 적중률', value: (m) => formatPercent(m.hitRate) },
   { label: '총 비용', value: (m) => formatUsd(m.costUsd) },

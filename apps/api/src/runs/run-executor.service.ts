@@ -5,6 +5,7 @@ import { Semaphore } from '../common/semaphore';
 import { log } from '../common/structured-log';
 import { LlmCallError } from '../llm/llm.errors';
 import { LlmService, type ModelCallConfig } from '../llm/llm.service';
+import { llmRetryOptions } from '../llm/retry-policy';
 import { PrismaService } from '../prisma/prisma.service';
 import { ScoringService } from '../scoring/scoring.service';
 import { Bm25Index } from '../rag/bm25';
@@ -225,11 +226,7 @@ export class RunExecutor implements OnApplicationBootstrap {
       const { value, attempts } = await withRetry(
         // 대기(백오프) 중에는 자리를 반납하도록 호출 1회 단위로만 제한한다
         () => this.limiter.run(() => this.llm.generate(context.modelConfig, prompt)),
-        {
-          maxAttempts: envNumber('LLM_MAX_ATTEMPTS', 4),
-          baseDelayMs: envNumber('LLM_RETRY_BASE_MS', 1000),
-          maxDelayMs: envNumber('LLM_RETRY_MAX_MS', 15_000),
-        },
+        llmRetryOptions(),
         (error) => error instanceof LlmCallError && error.retryable,
         (attempt, delayMs, error) =>
           log('warn', 'item.retry', {

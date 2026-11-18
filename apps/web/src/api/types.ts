@@ -114,6 +114,7 @@ export interface RunMetrics {
   successRate: number
   avgScore: number | null
   scoredCount: number
+  overallScore: number | null
   hitRate: number | null
   costUsd: number
   judgeCostUsd: number

@@ -32,7 +32,8 @@ interface MetricRow {
 }
 
 const METRIC_ROWS: MetricRow[] = [
-  { label: '평균 점수', better: 'high', value: (m) => m.avgScore, format: formatPercent },
+  { label: '정답률 (전체 기준, 실패=0점)', better: 'high', value: (m) => m.overallScore, format: formatPercent },
+  { label: '평균 점수 (응답 성공분만)', better: 'high', value: (m) => m.avgScore, format: formatPercent },
   { label: '성공률', better: 'high', value: (m) => m.successRate, format: formatPercent },
   { label: '검색 적중률', better: 'high', value: (m) => m.hitRate, format: formatPercent },
   { label: '총 비용', better: 'low', value: (m) => m.costUsd, format: formatUsd },
@@ -93,12 +94,12 @@ function CompareView({ data, error }: { data: CompareResponse; error: string | n
   const labels = useMemo(() => buildLabels(data.runs), [data.runs])
   const colors = new Map(data.runs.map((run, index) => [run.id, RUN_COLORS[index % RUN_COLORS.length]]))
   const running = data.runs.some((run) => isActive(run.status))
-  const scored = data.runs.some((run) => run.metrics.avgScore !== null)
+  const scored = data.runs.some((run) => run.metrics.overallScore !== null)
 
   const scoreData = data.runs.map((run) => ({
     id: run.id,
     name: labels.get(run.id) ?? run.id,
-    score: run.metrics.avgScore === null ? 0 : Math.round(run.metrics.avgScore * 1000) / 10,
+    score: run.metrics.overallScore === null ? 0 : Math.round(run.metrics.overallScore * 1000) / 10,
   }))
   const latencyData = data.runs.map((run) => ({
     name: labels.get(run.id) ?? run.id,
@@ -145,14 +146,14 @@ function CompareView({ data, error }: { data: CompareResponse; error: string | n
 
       <div className="grid gap-4 lg:grid-cols-2">
         {scored && (
-          <ChartCard title="평균 점수 (%)">
+          <ChartCard title="정답률 (전체 기준, %)">
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={scoreData} margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} />
                 <YAxis domain={[0, 100]} unit="%" tick={{ fontSize: 11 }} />
                 <Tooltip formatter={(value) => `${String(value)}%`} />
-                <Bar dataKey="score" name="평균 점수">
+                <Bar dataKey="score" name="정답률">
                   {scoreData.map((entry) => (
                     <Cell key={entry.id} fill={colors.get(entry.id)} />
                   ))}
@@ -198,9 +199,9 @@ function CompareView({ data, error }: { data: CompareResponse; error: string | n
                     key={run.id}
                     name={labels.get(run.id)}
                     data={
-                      run.metrics.avgScore === null
+                      run.metrics.overallScore === null
                         ? []
-                        : [{ x: run.metrics.costUsd, y: Math.round(run.metrics.avgScore * 1000) / 10 }]
+                        : [{ x: run.metrics.costUsd, y: Math.round(run.metrics.overallScore * 1000) / 10 }]
                     }
                     fill={colors.get(run.id)}
                   />
