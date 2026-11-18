@@ -18,5 +18,5 @@ export interface LlmProvider {
   ): Promise<LlmResult>;
 }
 
-export const PROVIDERS = ['openai', 'gemini'] as const;
+export const PROVIDERS = ['openai', 'gemini', 'mock'] as const;
 export type ProviderName = (typeof PROVIDERS)[number];

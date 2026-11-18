@@ -25,6 +25,7 @@ model Workspace {
   datasets     Dataset[]
   prompts      PromptVersion[]
   modelConfigs ModelConfig[]
+  runs         Run[]
 
   @@index([ownerId])
 }
@@ -37,17 +38,19 @@ model Dataset {
   name        String
   createdAt   DateTime      @default(now())
   items       DatasetItem[]
+  runs        Run[]
 
   @@index([workspaceId])
 }
 
 model DatasetItem {
-  id        String  @id @default(uuid())
+  id        String      @id @default(uuid())
   datasetId String
-  dataset   Dataset @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  dataset   Dataset     @relation(fields: [datasetId], references: [id], onDelete: Cascade)
   position  Int
   input     String
   expected  String?
+  results   RunResult[]
 
   @@index([datasetId, position])
 }
@@ -61,6 +64,7 @@ model PromptVersion {
   version     Int
   template    String
   createdAt   DateTime  @default(now())
+  runs        Run[]
 
   @@unique([workspaceId, name, version])
 }
@@ -78,6 +82,56 @@ model ModelConfig {
   inputPricePerM  Float     @default(0)
   outputPricePerM Float     @default(0)
   createdAt       DateTime  @default(now())
+  runs            Run[]
 
   @@index([workspaceId])
+}
+
+// 실행 1건 = (데이터셋, 프롬프트 버전, 모델) 조합 하나
+// status: PENDING -> RUNNING -> COMPLETED | FAILED | CANCELLED
+model Run {
+  id             String        @id @default(uuid())
+  workspaceId    String
+  workspace      Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  datasetId      String
+  dataset        Dataset       @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  promptId       String
+  prompt         PromptVersion @relation(fields: [promptId], references: [id], onDelete: Cascade)
+  modelConfigId  String
+  modelConfig    ModelConfig   @relation(fields: [modelConfigId], references: [id], onDelete: Cascade)
+  status         String        @default("PENDING")
+  total          Int
+  // 같은 요청을 두 번 보내도 실행이 한 번만 만들어지게 하는 키
+  idempotencyKey String?
+  error          String?
+  createdAt      DateTime      @default(now())
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  results        RunResult[]
+
+  @@unique([workspaceId, idempotencyKey])
+  @@index([workspaceId, createdAt])
+  @@index([status])
+}
+
+// 질문 1건의 결과. (runId, itemId) 가 유일해서 재시작 후 이어서 실행해도 중복 저장되지 않는다
+model RunResult {
+  id           String      @id @default(uuid())
+  runId        String
+  run          Run         @relation(fields: [runId], references: [id], onDelete: Cascade)
+  itemId       String
+  item         DatasetItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  position     Int
+  status       String
+  output       String?
+  error        String?
+  attempts     Int         @default(1)
+  inputTokens  Int         @default(0)
+  outputTokens Int         @default(0)
+  latencyMs    Int         @default(0)
+  costUsd      Float       @default(0)
+  createdAt    DateTime    @default(now())
+
+  @@unique([runId, itemId])
+  @@index([runId, position])
 }

@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   Body,
   Controller,
   Delete,
@@ -9,6 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { LlmCallError } from '../llm/llm.errors';
 import { LlmService } from '../llm/llm.service';
 import { WorkspaceOwnerGuard } from '../workspaces/workspace-owner.guard';
 import { CreateModelDto } from './dto/create-model.dto';
@@ -51,6 +53,13 @@ export class ModelsController {
     @Body() dto: TestModelDto,
   ) {
     const config = await this.models.findOne(workspaceId, id);
-    return this.llm.generate(config, dto.prompt);
+    try {
+      return await this.llm.generate(config, dto.prompt);
+    } catch (error) {
+      if (error instanceof LlmCallError) {
+        throw new BadGatewayException(`모델 호출에 실패했습니다: ${error.message}`);
+      }
+      throw error;
+    }
   }
 }
