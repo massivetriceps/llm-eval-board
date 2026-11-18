@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRunDto } from './dto/create-run.dto';
 import { RunExecutor } from './run-executor.service';
+import { summarizeResults } from './run-stats';
 
 const RUN_INCLUDE = {
   dataset: { select: { name: true } },
@@ -18,6 +19,9 @@ interface Counts {
   succeeded: number;
   failed: number;
 }
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isUniqueViolation(error: unknown): boolean {
   return (
@@ -175,8 +179,124 @@ export class RunsService {
       take: 50,
       include: RUN_INCLUDE,
     });
-    const counts = await this.countsByRun(runs.map((run) => run.id));
-    return runs.map((run) => this.withProgress(run, counts.get(run.id)));
+    const ids = runs.map((run) => run.id);
+    const [counts, aggregates] = await Promise.all([
+      this.countsByRun(ids),
+      this.prisma.runResult.groupBy({
+        by: ['runId'],
+        where: { runId: { in: ids } },
+        _avg: { score: true, latencyMs: true },
+        _sum: { costUsd: true, judgeCostUsd: true },
+      }),
+    ]);
+    const byRun = new Map(aggregates.map((row) => [row.runId, row]));
+    return runs.map((run) => {
+      const aggregate = byRun.get(run.id);
+      return {
+        ...this.withProgress(run, counts.get(run.id)),
+        // 목록 화면용 요약. 자세한 값은 상세 조회에 있다
+        summary: {
+          avgScore: aggregate?._avg.score ?? null,
+          costUsd:
+            (aggregate?._sum.costUsd ?? 0) + (aggregate?._sum.judgeCostUsd ?? 0),
+          avgLatencyMs: Math.round(aggregate?._avg.latencyMs ?? 0),
+        },
+      };
+    });
+  }
+
+  // 같은 데이터셋으로 돌린 실행들을 나란히 비교한다.
+  // runs: 실행별 지표, items: 질문별로 실행마다의 점수와 응답
+  async compare(workspaceId: string, idsParam?: string) {
+    const ids = [
+      ...new Set(
+        (idsParam ?? '')
+          .split(',')
+          .map((id) => id.trim())
+          .filter(Boolean),
+      ),
+    ];
+    if (ids.length < 2 || ids.length > 6) {
+      throw new BadRequestException('비교할 실행을 2~6개 골라 주세요.');
+    }
+    if (!ids.every((id) => UUID_PATTERN.test(id))) {
+      throw new BadRequestException('실행 id 형식이 올바르지 않습니다.');
+    }
+
+    const runs = await this.prisma.run.findMany({
+      where: { id: { in: ids }, workspaceId },
+      include: RUN_INCLUDE,
+    });
+    if (runs.length !== ids.length) {
+      throw new NotFoundException('일부 실행을 찾을 수 없습니다.');
+    }
+    if (new Set(runs.map((run) => run.datasetId)).size > 1) {
+      throw new BadRequestException(
+        '같은 데이터셋으로 실행한 결과끼리만 비교할 수 있습니다.',
+      );
+    }
+
+    const results = await this.prisma.runResult.findMany({
+      where: { runId: { in: ids } },
+      orderBy: { position: 'asc' },
+      include: { item: { select: { input: true, expected: true } } },
+    });
+
+    const rowsByRun = new Map<string, typeof results>();
+    const items = new Map<
+      string,
+      {
+        itemId: string;
+        position: number;
+        input: string;
+        expected: string | null;
+        cells: Record<
+          string,
+          { status: string; score: number | null; output: string | null }
+        >;
+      }
+    >();
+    for (const result of results) {
+      const list = rowsByRun.get(result.runId) ?? [];
+      list.push(result);
+      rowsByRun.set(result.runId, list);
+
+      const entry = items.get(result.itemId) ?? {
+        itemId: result.itemId,
+        position: result.position,
+        input: result.item.input,
+        expected: result.item.expected,
+        cells: {},
+      };
+      entry.cells[result.runId] = {
+        status: result.status,
+        score: result.score,
+        // 비교 화면에서는 앞부분만 보여 주면 충분하다
+        output: result.output ? result.output.slice(0, 300) : null,
+      };
+      items.set(result.itemId, entry);
+    }
+
+    // 요청한 순서대로 돌려준다
+    const byId = new Map(runs.map((run) => [run.id, run]));
+    return {
+      runs: ids.map((id) => {
+        const run = byId.get(id);
+        if (!run) throw new NotFoundException('실행을 찾을 수 없습니다.');
+        return {
+          id: run.id,
+          status: run.status,
+          scorer: run.scorer,
+          topK: run.topK,
+          usesDocument: run.documentId !== null,
+          dataset: run.dataset,
+          prompt: run.prompt,
+          modelConfig: run.modelConfig,
+          metrics: summarizeResults(rowsByRun.get(id) ?? []),
+        };
+      }),
+      items: [...items.values()].sort((a, b) => a.position - b.position),
+    };
   }
 
   async findOne(workspaceId: string, id: string) {

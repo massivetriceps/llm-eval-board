@@ -6,6 +6,7 @@ import {
   HttpCode,
   Param,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -32,6 +33,15 @@ export class RunsController {
   @Get()
   list(@Param('workspaceId') workspaceId: string) {
     return this.runs.list(workspaceId);
+  }
+
+  // 같은 데이터셋으로 실행한 결과 2~6개를 나란히 비교한다. :id 보다 먼저 선언해야 한다
+  @Get('compare')
+  compare(
+    @Param('workspaceId') workspaceId: string,
+    @Query('ids') ids?: string,
+  ) {
+    return this.runs.compare(workspaceId, ids);
   }
 
   @Get(':id')
