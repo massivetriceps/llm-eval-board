@@ -6,3 +6,5 @@ process.env.JWT_SECRET ??= 'e2e-test-secret';
 process.env.LLM_MAX_ATTEMPTS = '3';
 process.env.LLM_RETRY_BASE_MS = '5';
 process.env.LLM_RETRY_MAX_MS = '20';
+// 테스트 출력에 실행 로그가 섞이지 않게 한다
+process.env.LOG_LEVEL = 'silent';

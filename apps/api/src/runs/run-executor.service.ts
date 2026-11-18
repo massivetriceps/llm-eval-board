@@ -1,7 +1,8 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
 import { envNumber } from '../common/env';
 import { RetryFailure, withRetry } from '../common/retry';
 import { Semaphore } from '../common/semaphore';
+import { log } from '../common/structured-log';
 import { LlmCallError } from '../llm/llm.errors';
 import { LlmService, type ModelCallConfig } from '../llm/llm.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -33,6 +34,10 @@ interface RunContext {
   retrieval: Retrieval | null;
   // 키 오류처럼 계속해도 의미 없는 오류가 나면 여기에 담고 실행을 멈춘다
   fatalError?: string;
+  // 종료 로그용 집계 (이번 프로세스에서 처리한 질문만 센다)
+  startedAtMs: number;
+  succeeded: number;
+  failed: number;
 }
 
 interface ResultData {
@@ -56,7 +61,6 @@ const ACTIVE_STATUSES = ['PENDING', 'RUNNING'];
 
 @Injectable()
 export class RunExecutor implements OnApplicationBootstrap {
-  private readonly logger = new Logger(RunExecutor.name);
   // 이 프로세스에서 실행 중인 run (같은 run 을 두 번 시작하지 않기 위함)
   private readonly active = new Set<string>();
   private readonly cancelled = new Set<string>();
@@ -77,7 +81,7 @@ export class RunExecutor implements OnApplicationBootstrap {
       select: { id: true },
     });
     for (const { id } of unfinished) {
-      this.logger.log(`미완료 실행을 이어서 시작합니다: ${id}`);
+      log('info', 'run.resume', { runId: id });
       this.enqueue(id);
     }
   }
@@ -158,7 +162,19 @@ export class RunExecutor implements OnApplicationBootstrap {
       scorer,
       judge,
       retrieval,
+      startedAtMs: Date.now(),
+      succeeded: 0,
+      failed: 0,
     };
+    log('info', 'run.start', {
+      runId,
+      pendingItems: items.length,
+      provider: run.modelConfig.provider,
+      model: run.modelConfig.model,
+      scorer,
+      rag: retrieval !== null,
+      concurrency: this.concurrency,
+    });
     const queue = [...items];
     const workers = Array.from(
       { length: Math.min(this.concurrency, queue.length) },
@@ -216,11 +232,14 @@ export class RunExecutor implements OnApplicationBootstrap {
         },
         (error) => error instanceof LlmCallError && error.retryable,
         (attempt, delayMs, error) =>
-          this.logger.warn(
-            `재시도 ${attempt}회차 실패, ${delayMs}ms 후 다시 시도 (run ${context.runId}): ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          ),
+          log('warn', 'item.retry', {
+            runId: context.runId,
+            itemId: item.id,
+            position: item.position,
+            attempt,
+            delayMs,
+            error: error instanceof Error ? error.message : String(error),
+          }),
       );
       // 생성이 끝난 뒤 채점한다. 채점이 실패해도 생성 결과는 그대로 저장한다
       const outcome = await this.scoring.score(
@@ -249,6 +268,17 @@ export class RunExecutor implements OnApplicationBootstrap {
         retrieved: context.retrieval ? retrieved : undefined,
         hit: evidenceHit,
       });
+      context.succeeded += 1;
+      log('info', 'item.done', {
+        runId: context.runId,
+        itemId: item.id,
+        position: item.position,
+        attempts,
+        latencyMs: value.latencyMs,
+        score: outcome.score,
+        scoreError: outcome.error,
+        costUsd: value.costUsd + (outcome.judgeCostUsd ?? 0),
+      });
     } catch (error) {
       const attempts = error instanceof RetryFailure ? error.attempts : 1;
       const cause = error instanceof RetryFailure ? error.causeError : error;
@@ -260,6 +290,14 @@ export class RunExecutor implements OnApplicationBootstrap {
         status: 'FAILED',
         error: message,
         attempts,
+      });
+      context.failed += 1;
+      log('warn', 'item.failed', {
+        runId: context.runId,
+        itemId: item.id,
+        position: item.position,
+        attempts,
+        error: message,
       });
     }
   }
@@ -274,9 +312,19 @@ export class RunExecutor implements OnApplicationBootstrap {
   }
 
   private async finish(context: RunContext) {
+    const summary = {
+      runId: context.runId,
+      durationMs: Date.now() - context.startedAtMs,
+      succeeded: context.succeeded,
+      failed: context.failed,
+    };
     // 취소는 cancel API 가 이미 상태를 바꿔 두었다
-    if (this.cancelled.has(context.runId)) return;
+    if (this.cancelled.has(context.runId)) {
+      log('info', 'run.cancelled', summary);
+      return;
+    }
     if (context.fatalError) {
+      log('error', 'run.failed', { ...summary, error: context.fatalError });
       await this.prisma.run.updateMany({
         where: { id: context.runId, status: 'RUNNING' },
         data: {
@@ -291,18 +339,19 @@ export class RunExecutor implements OnApplicationBootstrap {
       where: { id: context.runId, status: 'RUNNING' },
       data: { status: 'COMPLETED', finishedAt: new Date() },
     });
+    log('info', 'run.completed', summary);
   }
 
   private async markCrashed(runId: string, error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
-    this.logger.error(`실행 중 예상하지 못한 오류 (run ${runId}): ${message}`);
+    log('error', 'run.crashed', { runId, error: message });
     try {
       await this.prisma.run.updateMany({
         where: { id: runId, status: { in: ACTIVE_STATUSES } },
         data: { status: 'FAILED', error: message, finishedAt: new Date() },
       });
     } catch (updateError) {
-      this.logger.error(`실패 상태 기록에도 실패했습니다: ${String(updateError)}`);
+      log('error', 'run.crash_record_failed', { runId, error: String(updateError) });
     }
   }
 }
