@@ -20,6 +20,7 @@ function sleep(ms: number): Promise<void> {
 //  mock-flaky     : 40% 확률로 503 (재시도 확인용)
 //  mock-down      : 항상 503 (재시도 소진 확인용)
 //  mock-bad-key   : 항상 401 (실행 중단 확인용)
+//  mock-judge     : 채점용. 1~5 점 JSON 을 돌려준다
 @Injectable()
 export class MockProvider implements LlmProvider {
   async generate(model: string, prompt: string): Promise<LlmResult> {
@@ -34,6 +35,19 @@ export class MockProvider implements LlmProvider {
     }
     if (model === 'mock-flaky' && Math.random() < 0.4) {
       throw new MockApiError('service unavailable', 503);
+    }
+
+    if (model === 'mock-judge') {
+      const text = JSON.stringify({
+        score: 1 + Math.floor(Math.random() * 5),
+        reason: 'mock judge verdict',
+      });
+      return {
+        text,
+        inputTokens: Math.ceil(prompt.length / 4),
+        outputTokens: Math.ceil(text.length / 4),
+        latencyMs: Math.round(performance.now() - startedAt),
+      };
     }
 
     const text = `[mock] ${prompt.slice(-40)}`;

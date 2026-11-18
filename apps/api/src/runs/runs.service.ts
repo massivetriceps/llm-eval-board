@@ -74,6 +74,32 @@ export class RunsService {
       throw new BadRequestException('질문이 없는 데이터셋은 실행할 수 없습니다.');
     }
 
+    const scorer = dto.scorer ?? 'none';
+    if (scorer === 'judge') {
+      if (!dto.judgeModelConfigId) {
+        throw new BadRequestException(
+          'judge 채점에는 judgeModelConfigId 가 필요합니다.',
+        );
+      }
+      const judge = await this.prisma.modelConfig.findFirst({
+        where: { id: dto.judgeModelConfigId, workspaceId },
+        select: { id: true },
+      });
+      if (!judge) {
+        throw new NotFoundException('채점 모델 설정을 찾을 수 없습니다.');
+      }
+    }
+    if (scorer === 'exact' || scorer === 'contains') {
+      const withExpected = await this.prisma.datasetItem.count({
+        where: { datasetId: dto.datasetId, expected: { not: null } },
+      });
+      if (withExpected === 0) {
+        throw new BadRequestException(
+          '정답(expected) 컬럼이 없는 데이터셋은 exact/contains 로 채점할 수 없습니다.',
+        );
+      }
+    }
+
     // 같은 조합이 이미 돌고 있으면 중복 실행을 막는다
     const running = await this.prisma.run.findFirst({
       where: {
@@ -100,6 +126,9 @@ export class RunsService {
           promptId: dto.promptId,
           modelConfigId: dto.modelConfigId,
           total: dataset._count.items,
+          scorer,
+          judgeModelConfigId:
+            scorer === 'judge' ? (dto.judgeModelConfigId ?? null) : null,
           idempotencyKey: idempotencyKey ?? null,
         },
       });
@@ -140,8 +169,14 @@ export class RunsService {
       this.countsByRun([id]),
       this.prisma.runResult.aggregate({
         where: { runId: id },
-        _sum: { inputTokens: true, outputTokens: true, costUsd: true },
-        _avg: { latencyMs: true },
+        _sum: {
+          inputTokens: true,
+          outputTokens: true,
+          costUsd: true,
+          judgeCostUsd: true,
+        },
+        _avg: { latencyMs: true, score: true },
+        _count: { score: true },
       }),
     ]);
     return {
@@ -151,6 +186,10 @@ export class RunsService {
         outputTokens: aggregate._sum.outputTokens ?? 0,
         costUsd: aggregate._sum.costUsd ?? 0,
         avgLatencyMs: Math.round(aggregate._avg.latencyMs ?? 0),
+        judgeCostUsd: aggregate._sum.judgeCostUsd ?? 0,
+        // 0~1. 채점된 결과가 하나도 없으면 null (exact 채점이면 정확도와 같다)
+        avgScore: aggregate._avg.score,
+        scoredCount: aggregate._count.score,
       },
     };
   }

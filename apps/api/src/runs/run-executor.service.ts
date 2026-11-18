@@ -5,17 +5,22 @@ import { Semaphore } from '../common/semaphore';
 import { LlmCallError } from '../llm/llm.errors';
 import { LlmService, type ModelCallConfig } from '../llm/llm.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ScoringService } from '../scoring/scoring.service';
+import type { ScorerName } from '../scoring/scorers';
 
 interface RunItem {
   id: string;
   position: number;
   input: string;
+  expected: string | null;
 }
 
 interface RunContext {
   runId: string;
   template: string;
   modelConfig: ModelCallConfig;
+  scorer: ScorerName;
+  judge: ModelCallConfig | null;
   // 키 오류처럼 계속해도 의미 없는 오류가 나면 여기에 담고 실행을 멈춘다
   fatalError?: string;
 }
@@ -29,6 +34,10 @@ interface ResultData {
   outputTokens?: number;
   latencyMs?: number;
   costUsd?: number;
+  score?: number | null;
+  scoreError?: string;
+  judgeReason?: string;
+  judgeCostUsd?: number;
 }
 
 const ACTIVE_STATUSES = ['PENDING', 'RUNNING'];
@@ -46,6 +55,7 @@ export class RunExecutor implements OnApplicationBootstrap {
   constructor(
     private readonly prisma: PrismaService,
     private readonly llm: LlmService,
+    private readonly scoring: ScoringService,
   ) {}
 
   // 서버가 꺼졌을 때 끝나지 못한 run 을 이어서 실행한다
@@ -98,13 +108,22 @@ export class RunExecutor implements OnApplicationBootstrap {
         id: { notIn: finished.map((result) => result.itemId) },
       },
       orderBy: { position: 'asc' },
-      select: { id: true, position: true, input: true },
+      select: { id: true, position: true, input: true, expected: true },
     });
 
+    const scorer = run.scorer as ScorerName;
+    const judge =
+      scorer === 'judge' && run.judgeModelConfigId
+        ? await this.prisma.modelConfig.findUnique({
+            where: { id: run.judgeModelConfigId },
+          })
+        : null;
     const context: RunContext = {
       runId,
       template: run.prompt.template,
       modelConfig: run.modelConfig,
+      scorer,
+      judge,
     };
     const queue = [...items];
     const workers = Array.from(
@@ -143,6 +162,18 @@ export class RunExecutor implements OnApplicationBootstrap {
             }`,
           ),
       );
+      // 생성이 끝난 뒤 채점한다. 채점이 실패해도 생성 결과는 그대로 저장한다
+      const outcome = await this.scoring.score(
+        {
+          scorer: context.scorer,
+          question: item.input,
+          expected: item.expected,
+          answer: value.text,
+          judge: context.judge,
+        },
+        (task) => this.limiter.run(task),
+      );
+      if (outcome.fatal) context.fatalError = outcome.fatal;
       await this.save(context.runId, item, {
         status: 'SUCCEEDED',
         output: value.text,
@@ -151,6 +182,10 @@ export class RunExecutor implements OnApplicationBootstrap {
         outputTokens: value.outputTokens,
         latencyMs: value.latencyMs,
         costUsd: value.costUsd,
+        score: outcome.score,
+        scoreError: outcome.error,
+        judgeReason: outcome.reason,
+        judgeCostUsd: outcome.judgeCostUsd,
       });
     } catch (error) {
       const attempts = error instanceof RetryFailure ? error.attempts : 1;

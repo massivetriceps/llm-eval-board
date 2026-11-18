@@ -104,6 +104,10 @@ model Run {
   // 같은 요청을 두 번 보내도 실행이 한 번만 만들어지게 하는 키
   idempotencyKey String?
   error          String?
+  // 채점 방식: none | exact | contains | judge
+  scorer         String        @default("none")
+  // scorer 가 judge 일 때 채점에 쓰는 모델 설정 (관계 없이 id 만 보관)
+  judgeModelConfigId String?
   createdAt      DateTime      @default(now())
   startedAt      DateTime?
   finishedAt     DateTime?
@@ -130,6 +134,11 @@ model RunResult {
   outputTokens Int         @default(0)
   latencyMs    Int         @default(0)
   costUsd      Float       @default(0)
+  // 0~1 점수. 채점하지 않았거나 채점에 실패하면 null
+  score        Float?
+  scoreError   String?
+  judgeReason  String?
+  judgeCostUsd Float       @default(0)
   createdAt    DateTime    @default(now())
 
   @@unique([runId, itemId])
