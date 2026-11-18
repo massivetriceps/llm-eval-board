@@ -120,13 +120,13 @@ export function RunDetailPage() {
 
 function Summary({ run }: { run: RunDetail }) {
   const { summary } = run
-  const scoreLabel = run.scorer === 'judge' ? '평균 점수' : run.scorer === 'none' ? '점수' : '정확도'
+  const scoreLabel = run.scorer === 'judge' ? '평균 점수' : run.scorer === 'none' ? '점수' : '정답률'
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
       <Kpi
         label={scoreLabel}
-        value={formatPercent(summary.avgScore)}
-        hint={summary.scoredCount > 0 ? `${summary.scoredCount}문항 채점` : '채점 안 함'}
+        value={formatPercent(summary.overallScore)}
+        hint={summary.scoredCount > 0 ? `${summary.scoredCount}문항 채점 · 실패는 0점` : '채점 안 함'}
       />
       {summary.hitRate !== null && (
         <Kpi label="검색 적중률" value={formatPercent(summary.hitRate)} hint={`상위 ${run.topK}개 문단 기준`} />

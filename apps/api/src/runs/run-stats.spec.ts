@@ -1,4 +1,10 @@
-import { percentile, summarizeResults, type ResultRow } from './run-stats';
+import {
+  overallScore,
+  percentile,
+  scoreInterval,
+  summarizeResults,
+  type ResultRow,
+} from './run-stats';
 
 function row(overrides: Partial<ResultRow> = {}): ResultRow {
   return {
@@ -34,6 +40,59 @@ describe('percentile', () => {
   });
 });
 
+describe('scoreInterval', () => {
+  const ones = (count: number) => Array<number>(count).fill(1);
+
+  it('30문항 전부 정답이어도 하한은 100% 보다 한참 낮다 (Wilson)', () => {
+    const ci = scoreInterval(ones(30));
+    expect(ci).not.toBeNull();
+    expect(ci?.low).toBeCloseTo(0.8865, 3);
+    expect(ci?.high).toBe(1);
+  });
+
+  it('전부 오답이면 하한이 0 이고 상한은 0 보다 크다', () => {
+    const ci = scoreInterval(Array<number>(30).fill(0));
+    expect(ci?.low).toBe(0);
+    expect(ci?.high).toBeCloseTo(0.1135, 3);
+  });
+
+  it('질문이 많을수록 구간이 좁아진다', () => {
+    const narrow = scoreInterval([...ones(150), ...Array<number>(150).fill(0)]);
+    const wide = scoreInterval([...ones(15), ...Array<number>(15).fill(0)]);
+    expect((narrow?.high ?? 0) - (narrow?.low ?? 0)).toBeLessThan(
+      (wide?.high ?? 0) - (wide?.low ?? 0),
+    );
+  });
+
+  it('연속 점수는 평균 ± 1.96 × 표준오차를 쓰고 0~1 로 자른다', () => {
+    const ci = scoreInterval([0.25, 0.5, 0.75, 1, 0.5, 0.75]);
+    expect(ci).not.toBeNull();
+    expect(ci?.low).toBeGreaterThan(0.3);
+    expect(ci?.high).toBeLessThanOrEqual(1);
+    expect(ci?.low).toBeLessThan(ci?.high ?? 0);
+  });
+
+  it('질문이 2개 미만이면 null 이다', () => {
+    expect(scoreInterval([])).toBeNull();
+    expect(scoreInterval([1])).toBeNull();
+  });
+});
+
+describe('overallScore', () => {
+  it('실패한 질문까지 분모에 넣는다', () => {
+    expect(overallScore(8, 8, 30)).toBeCloseTo(8 / 30);
+  });
+
+  it('채점된 결과가 없거나 행이 없으면 null 이다', () => {
+    expect(overallScore(null, 0, 30)).toBeNull();
+    expect(overallScore(0, 0, 0)).toBeNull();
+  });
+
+  it('채점된 결과가 있으면 합이 0 이어도 0 점이다', () => {
+    expect(overallScore(0, 3, 3)).toBe(0);
+  });
+});
+
 describe('summarizeResults', () => {
   it('성공률과 평균 점수를 계산한다', () => {
     const metrics = summarizeResults([
@@ -63,8 +122,21 @@ describe('summarizeResults', () => {
     expect(metrics.overallScore).toBe(0.5);
   });
 
-  it('채점하지 않았으면 overallScore 는 null 이다', () => {
-    expect(summarizeResults([row(), row()]).overallScore).toBeNull();
+  it('채점하지 않았으면 overallScore 와 신뢰구간은 null 이다', () => {
+    const metrics = summarizeResults([row(), row()]);
+    expect(metrics.overallScore).toBeNull();
+    expect(metrics.overallScoreCi).toBeNull();
+  });
+
+  it('실패한 질문은 0점으로 신뢰구간에 들어간다', () => {
+    const rows = [
+      ...Array.from({ length: 10 }, () => row({ score: 1 })),
+      ...Array.from({ length: 10 }, () => row({ status: 'FAILED', latencyMs: 0 })),
+    ];
+    const ci = summarizeResults(rows).overallScoreCi;
+    // 20문항 중 10문항 정답 → 50% 를 가운데로 하는 구간
+    expect(ci?.low).toBeLessThan(0.5);
+    expect(ci?.high).toBeGreaterThan(0.5);
   });
 
   it('지연시간은 실패한 행을 빼고 계산한다', () => {

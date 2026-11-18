@@ -1,5 +1,6 @@
 import type { CompareCell, CompareResponse, CompareRun, RunMetrics } from '../api/types.ts'
 import { formatMs, formatNumber, formatPercent, formatUsd } from './format.ts'
+import { OVERLAP_NOTICE, formatInterval, intervalsOverlap } from './stats.ts'
 
 // 비교 결과를 CSV / Markdown 문자열로 바꾼다. 화면에 이미 받아 둔 데이터로 만들기 때문에
 // 서버를 다시 부르지 않고, 화면에 보이는 숫자와 항상 같다.
@@ -50,6 +51,7 @@ interface MetricLine {
 
 const METRIC_LINES: MetricLine[] = [
   { label: '정답률 (전체 기준, 실패=0점)', value: (m) => formatPercent(m.overallScore) },
+  { label: '정답률 95% 신뢰구간', value: (m) => formatInterval(m.overallScoreCi) },
   { label: '평균 점수 (응답 성공분만)', value: (m) => formatPercent(m.avgScore) },
   { label: '성공률', value: (m) => formatPercent(m.successRate) },
   { label: '검색 적중률', value: (m) => formatPercent(m.hitRate) },
@@ -107,6 +109,9 @@ export function buildMarkdown(data: CompareResponse, labels: Map<string, string>
   }
   out.push('')
 
+  if (intervalsOverlap(data.runs) === true) {
+    out.push(`> ${OVERLAP_NOTICE}`, '')
+  }
   if (data.items.length < 30) {
     out.push(
       `> 주의: 질문이 ${data.items.length}개뿐이라 작은 점수 차이는 우연일 수 있습니다. 결론을 내리기 전에 질문 수를 늘려 다시 확인하세요.`,

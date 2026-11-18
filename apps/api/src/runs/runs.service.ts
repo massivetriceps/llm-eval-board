@@ -7,7 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRunDto } from './dto/create-run.dto';
 import { RunExecutor } from './run-executor.service';
-import { summarizeResults } from './run-stats';
+import { overallScore, summarizeResults } from './run-stats';
 
 const RUN_INCLUDE = {
   dataset: { select: { name: true } },
@@ -186,7 +186,8 @@ export class RunsService {
         by: ['runId'],
         where: { runId: { in: ids } },
         _avg: { score: true, latencyMs: true },
-        _sum: { costUsd: true, judgeCostUsd: true },
+        _sum: { score: true, costUsd: true, judgeCostUsd: true },
+        _count: { _all: true, score: true },
       }),
     ]);
     const byRun = new Map(aggregates.map((row) => [row.runId, row]));
@@ -197,6 +198,13 @@ export class RunsService {
         // 목록 화면용 요약. 자세한 값은 상세 조회에 있다
         summary: {
           avgScore: aggregate?._avg.score ?? null,
+          overallScore: aggregate
+            ? overallScore(
+                aggregate._sum.score,
+                aggregate._count.score,
+                aggregate._count._all,
+              )
+            : null,
           costUsd:
             (aggregate?._sum.costUsd ?? 0) + (aggregate?._sum.judgeCostUsd ?? 0),
           avgLatencyMs: Math.round(aggregate?._avg.latencyMs ?? 0),
@@ -315,9 +323,10 @@ export class RunsService {
           outputTokens: true,
           costUsd: true,
           judgeCostUsd: true,
+          score: true,
         },
         _avg: { latencyMs: true, score: true },
-        _count: { score: true },
+        _count: { _all: true, score: true },
       }),
       this.prisma.runResult.count({ where: { runId: id, hit: true } }),
       this.prisma.runResult.count({ where: { runId: id, hit: { not: null } } }),
@@ -333,6 +342,12 @@ export class RunsService {
         // 0~1. 채점된 결과가 하나도 없으면 null (exact 채점이면 정확도와 같다)
         avgScore: aggregate._avg.score,
         scoredCount: aggregate._count.score,
+        // 실패한 질문을 0점으로 센 전체 기준 정답률 (비교 화면과 같은 기준)
+        overallScore: overallScore(
+          aggregate._sum.score,
+          aggregate._count.score,
+          aggregate._count._all,
+        ),
         // RAG: 정답 근거가 검색 결과에 들어 있던 비율. 근거가 있는 질문이 없으면 null
         hitRate: hitTotal > 0 ? hitCount / hitTotal : null,
       },

@@ -49,6 +49,7 @@ export interface Progress {
 
 export interface RunListSummary {
   avgScore: number | null
+  overallScore: number | null
   costUsd: number
   avgLatencyMs: number
 }
@@ -83,6 +84,7 @@ export interface RunDetail extends RunBase {
     avgLatencyMs: number
     avgScore: number | null
     scoredCount: number
+    overallScore: number | null
     hitRate: number | null
   }
 }
@@ -107,6 +109,11 @@ export interface RunResultRow {
   item: { input: string; expected: string | null }
 }
 
+export interface ScoreInterval {
+  low: number
+  high: number
+}
+
 export interface RunMetrics {
   total: number
   succeeded: number
@@ -115,6 +122,7 @@ export interface RunMetrics {
   avgScore: number | null
   scoredCount: number
   overallScore: number | null
+  overallScoreCi: ScoreInterval | null
   hitRate: number | null
   costUsd: number
   judgeCostUsd: number

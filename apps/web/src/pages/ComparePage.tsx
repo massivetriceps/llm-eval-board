@@ -20,6 +20,7 @@ import { ErrorBox, Loading } from '../components/Feedback.tsx'
 import { StatusBadge, isActive } from '../components/StatusBadge.tsx'
 import { formatMs, formatNumber, formatPercent, formatUsd } from '../lib/format.ts'
 import { buildCsv, buildMarkdown, downloadText } from '../lib/report.ts'
+import { OVERLAP_NOTICE, formatInterval, intervalsOverlap } from '../lib/stats.ts'
 import { RUN_COLORS, buttonSecondary, card, td, th } from '../lib/ui.ts'
 import { useResource } from '../lib/useResource.ts'
 
@@ -143,6 +144,9 @@ function CompareView({ data, error }: { data: CompareResponse; error: string | n
       )}
 
       <MetricsTable runs={data.runs} labels={labels} colors={colors} />
+      {intervalsOverlap(data.runs) === true && (
+        <p className="rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-800">{OVERLAP_NOTICE}</p>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         {scored && (
@@ -266,6 +270,16 @@ function MetricsTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
+          {list.some((run) => run.metrics.overallScoreCi) && (
+            <tr>
+              <td className={`${td} font-medium text-slate-600`}>정답률 95% 신뢰구간</td>
+              {list.map((run) => (
+                <td key={run.id} className={`${td} tabular-nums text-slate-500`}>
+                  {formatInterval(run.metrics.overallScoreCi)}
+                </td>
+              ))}
+            </tr>
+          )}
           {METRIC_ROWS.map((row) => {
             const values = list.map((run) => row.value(run.metrics))
             // 가장 좋은 값에 표시한다. 모두 같거나 값이 하나뿐이면 표시하지 않는다

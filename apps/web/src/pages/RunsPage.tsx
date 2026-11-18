@@ -143,7 +143,7 @@ function RunRow({
       <td className={td}>
         <ProgressBar progress={run.progress} />
       </td>
-      <td className={`${td} tabular-nums`}>{formatPercent(run.summary.avgScore)}</td>
+      <td className={`${td} tabular-nums`}>{formatPercent(run.summary.overallScore)}</td>
       <td className={`${td} tabular-nums`}>{formatUsd(run.summary.costUsd)}</td>
       <td className={`${td} tabular-nums`}>{formatMs(run.summary.avgLatencyMs)}</td>
       <td className={`${td} text-slate-500`}>{formatDate(run.startedAt ?? run.createdAt)}</td>

@@ -47,7 +47,11 @@ interface RunBody {
   id: string
   status: string
   progress: { total: number; succeeded: number; failed: number; remaining: number }
-  summary: { avgScore: number | null; hitRate: number | null }
+  summary: {
+    avgScore: number | null;
+    overallScore: number | null;
+    hitRate: number | null;
+  }
   error: string | null
 }
 
@@ -290,11 +294,14 @@ describe('API (통합 테스트, 실제 DB + mock 모델)', () => {
       const contains = await startRun(user, { ...fixtures, scorer: 'contains' }).expect(202);
       const containsRun = await waitForRun(user, (contains.body as { id: string }).id);
       expect(containsRun.summary.avgScore).toBe(1);
+      // 실패한 질문이 없으면 전체 기준 정답률도 같다
+      expect(containsRun.summary.overallScore).toBe(1);
 
       // mock 응답은 "[mock] ..." 로 시작하므로 정답과 완전히 같지는 않다
       const exact = await startRun(user, { ...fixtures, scorer: 'exact' }).expect(202);
       const exactRun = await waitForRun(user, (exact.body as { id: string }).id);
       expect(exactRun.summary.avgScore).toBe(0);
+      expect(exactRun.summary.overallScore).toBe(0);
     });
 
     it('재시도를 모두 써도 실패하면 그 질문만 FAILED 로 기록하고 실행은 끝까지 간다', async () => {
