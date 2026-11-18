@@ -19,6 +19,7 @@ import { useWorkspaceId } from '../auth/auth-context.ts'
 import { ErrorBox, Loading } from '../components/Feedback.tsx'
 import { StatusBadge, isActive } from '../components/StatusBadge.tsx'
 import { formatMs, formatNumber, formatPercent, formatUsd } from '../lib/format.ts'
+import { buildCsv, buildMarkdown, downloadText } from '../lib/report.ts'
 import { RUN_COLORS, buttonSecondary, card, td, th } from '../lib/ui.ts'
 import { useResource } from '../lib/useResource.ts'
 
@@ -115,6 +116,22 @@ function CompareView({ data, error }: { data: CompareResponse; error: string | n
           <h1 className="text-xl font-bold">실행 비교</h1>
           <span className="text-sm text-slate-500">데이터셋: {data.runs[0].dataset.name}</span>
           {running && <span className="text-sm text-blue-600">진행 중인 실행이 있어 자동으로 갱신됩니다</span>}
+          <div className="ml-auto flex gap-2">
+            <button
+              type="button"
+              className={buttonSecondary}
+              onClick={() => downloadText('compare-report.md', buildMarkdown(data, labels), 'text/markdown')}
+            >
+              Markdown 내보내기
+            </button>
+            <button
+              type="button"
+              className={buttonSecondary}
+              onClick={() => downloadText('compare-report.csv', buildCsv(data, labels), 'text/csv')}
+            >
+              CSV 내보내기
+            </button>
+          </div>
         </div>
       </div>
       {error && <ErrorBox message={error} />}

@@ -11,8 +11,21 @@ jobs:
     defaults:
       run:
         working-directory: apps/api
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: eval
+          POSTGRES_PASSWORD: eval
+          POSTGRES_DB: evalboard
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U eval -d evalboard"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
-      # prisma generate 가 설정 파일을 읽을 때 필요한 더미 값 (실제 DB 연결 안 함)
       DATABASE_URL: postgresql://eval:eval@localhost:5432/evalboard
       JWT_SECRET: ci-test-secret
     steps:
@@ -26,6 +39,8 @@ jobs:
       - run: npm run lint
       - run: npm run build
       - run: npm test
+      - run: npx prisma migrate deploy
+      - run: npm run test:e2e
 
   web:
     runs-on: ubuntu-latest
