@@ -24,6 +24,19 @@ export function parseRetryAfterMs(message: string): number | undefined {
   return match ? Math.ceil(Number(match[1]) * 1000) : undefined;
 }
 
+// 하루 한도(예: 무료 티어 하루 20회)를 다 쓴 429 인가. 몇 시간 뒤에나 풀리므로 기다려도 소용이 없다
+export function isDailyQuotaExceeded(message: string): boolean {
+  return /PerDay|requests per day|per day limit/i.test(message);
+}
+
+function describeDailyQuota(message: string): string {
+  const model = /model:\s*([\w.\-]+)/.exec(message)?.[1];
+  const delayMs = parseRetryAfterMs(message);
+  const hours =
+    delayMs === undefined ? '' : ` 약 ${Math.ceil(delayMs / 3_600_000)}시간 뒤에 초기화됩니다.`;
+  return `일일 호출 한도를 모두 사용했습니다${model ? ` (${model})` : ''}.${hours} 다른 모델을 쓰거나 한도가 초기화된 뒤 다시 실행하세요.`;
+}
+
 function extractStatus(error: unknown, message: string): number | undefined {
   if (
     typeof error === 'object' &&
@@ -49,6 +62,10 @@ export function toLlmCallError(error: unknown): LlmCallError {
   if (status === undefined) {
     // 상태 코드가 없으면 네트워크 오류 등으로 보고 재시도 대상으로 둔다
     return new LlmCallError(message, true);
+  }
+  // 일일 한도는 재시도해도 소용이 없고 다음 질문도 같은 이유로 실패하므로 실행 전체를 멈춘다
+  if (status === 429 && isDailyQuotaExceeded(message)) {
+    return new LlmCallError(describeDailyQuota(message), false, status, true);
   }
   const retryable = status === 408 || status === 429 || status >= 500;
   const fatal = status === 401 || status === 403 || status === 404;
