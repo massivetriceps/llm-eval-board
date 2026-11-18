@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { assertDeletable } from '../common/run-usage';
 import { PrismaService } from '../prisma/prisma.service';
 import { chunkText } from '../rag/text';
 import { CreateDocumentDto } from './dto/create-document.dto';
@@ -67,10 +68,13 @@ export class DocumentsService {
     return document;
   }
 
-  async remove(workspaceId: string, id: string) {
-    const { count } = await this.prisma.document.deleteMany({
-      where: { id, workspaceId },
-    });
-    if (count === 0) throw new NotFoundException('문서를 찾을 수 없습니다.');
+  async remove(workspaceId: string, id: string, cascade = false) {
+    const exists = await this.prisma.document.count({ where: { id, workspaceId } });
+    if (exists === 0) throw new NotFoundException('문서를 찾을 수 없습니다.');
+    await assertDeletable(this.prisma, workspaceId, { documentId: id }, '이 문서', cascade);
+    await this.prisma.$transaction([
+      this.prisma.run.deleteMany({ where: { workspaceId, documentId: id } }),
+      this.prisma.document.deleteMany({ where: { id, workspaceId } }),
+    ]);
   }
 }

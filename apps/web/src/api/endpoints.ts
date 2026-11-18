@@ -39,8 +39,9 @@ export const datasets = {
   list: (w: string) => request<Dataset[]>(`${ws(w)}/datasets`),
   create: (w: string, name: string, csv: string) =>
     request<Dataset>(`${ws(w)}/datasets`, { method: 'POST', body: { name, csv } }),
-  remove: (w: string, id: string) =>
-    request<void>(`${ws(w)}/datasets/${id}`, { method: 'DELETE' }),
+  // cascade=true 면 이 항목을 쓴 실행 기록도 함께 지운다
+  remove: (w: string, id: string, cascade = false) =>
+    request<void>(`${ws(w)}/datasets/${id}${cascade ? '?cascade=true' : ''}`, { method: 'DELETE' }),
 }
 
 export const prompts = {
@@ -63,16 +64,18 @@ export const models = {
   list: (w: string) => request<ModelConfig[]>(`${ws(w)}/models`),
   create: (w: string, input: CreateModelInput) =>
     request<ModelConfig>(`${ws(w)}/models`, { method: 'POST', body: input }),
-  remove: (w: string, id: string) =>
-    request<void>(`${ws(w)}/models/${id}`, { method: 'DELETE' }),
+  // cascade=true 면 이 항목을 쓴 실행 기록도 함께 지운다
+  remove: (w: string, id: string, cascade = false) =>
+    request<void>(`${ws(w)}/models/${id}${cascade ? '?cascade=true' : ''}`, { method: 'DELETE' }),
 }
 
 export const documents = {
   list: (w: string) => request<DocumentSummary[]>(`${ws(w)}/documents`),
   create: (w: string, name: string, text: string) =>
     request<DocumentSummary>(`${ws(w)}/documents`, { method: 'POST', body: { name, text } }),
-  remove: (w: string, id: string) =>
-    request<void>(`${ws(w)}/documents/${id}`, { method: 'DELETE' }),
+  // cascade=true 면 이 항목을 쓴 실행 기록도 함께 지운다
+  remove: (w: string, id: string, cascade = false) =>
+    request<void>(`${ws(w)}/documents/${id}${cascade ? '?cascade=true' : ''}`, { method: 'DELETE' }),
 }
 
 export const runs = {

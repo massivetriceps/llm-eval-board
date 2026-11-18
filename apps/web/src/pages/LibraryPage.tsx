@@ -1,4 +1,5 @@
 import { useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
+import { ApiError } from '../api/client.ts'
 import { datasets, documents, models, prompts, type CreateModelInput } from '../api/endpoints.ts'
 import type { ProviderName } from '../api/types.ts'
 import { useWorkspaceId } from '../auth/auth-context.ts'
@@ -67,6 +68,25 @@ function useSubmit(onDone: () => void) {
   return { busy, error, run, setError }
 }
 
+// 실행 기록이 남아 있으면 서버가 409(HAS_RUNS)로 알려 준다. 몇 건이 지워지는지 보여 주고 다시 확인받은 뒤에만 cascade 로 지운다
+async function removeConfirmingRuns(
+  remove: (cascade: boolean) => Promise<void>,
+  label: string,
+): Promise<void> {
+  try {
+    await remove(false)
+  } catch (e) {
+    if (e instanceof ApiError && e.code === 'HAS_RUNS') {
+      const ok = window.confirm(
+        `"${label}" 을(를) 쓴 실행 기록이 ${e.runCount ?? '여러'}건 있습니다.\n그래도 삭제하면 실행 기록도 함께 지워지고 되돌릴 수 없습니다. 삭제할까요?`,
+      )
+      if (ok) await remove(true)
+      return
+    }
+    throw e
+  }
+}
+
 async function readFile(event: ChangeEvent<HTMLInputElement>): Promise<{ name: string; text: string } | null> {
   const file = event.target.files?.[0]
   if (!file) return null
@@ -99,8 +119,8 @@ function DatasetsTab() {
   const form = useSubmit(list.reload)
 
   async function remove(id: string, label: string) {
-    if (!window.confirm(`"${label}" 을(를) 삭제할까요?\n이 데이터셋으로 실행한 기록도 함께 삭제됩니다.`)) return
-    await form.run(() => datasets.remove(workspaceId, id))
+    if (!window.confirm(`"${label}" 을(를) 삭제할까요?`)) return
+    await form.run(() => removeConfirmingRuns((cascade) => datasets.remove(workspaceId, id, cascade), label))
   }
 
   return (
@@ -284,8 +304,8 @@ function ModelsTab() {
   }
 
   async function remove(id: string, text: string) {
-    if (!window.confirm(`"${text}" 을(를) 삭제할까요?\n이 모델로 실행한 기록도 함께 삭제됩니다.`)) return
-    await form.run(() => models.remove(workspaceId, id))
+    if (!window.confirm(`"${text}" 을(를) 삭제할까요?`)) return
+    await form.run(() => removeConfirmingRuns((cascade) => models.remove(workspaceId, id, cascade), text))
   }
 
   async function addMocks() {
@@ -417,7 +437,7 @@ function DocumentsTab() {
 
   async function remove(id: string, label: string) {
     if (!window.confirm(`"${label}" 문서를 삭제할까요?`)) return
-    await form.run(() => documents.remove(workspaceId, id))
+    await form.run(() => removeConfirmingRuns((cascade) => documents.remove(workspaceId, id, cascade), label))
   }
 
   return (

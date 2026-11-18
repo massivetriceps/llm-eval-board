@@ -7,9 +7,11 @@ import {
   HttpCode,
   Param,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { parseCascade } from '../common/run-usage';
 import { LlmCallError } from '../llm/llm.errors';
 import { LlmService } from '../llm/llm.service';
 import { WorkspaceOwnerGuard } from '../workspaces/workspace-owner.guard';
@@ -40,8 +42,12 @@ export class ModelsController {
 
   @Delete(':id')
   @HttpCode(204)
-  remove(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
-    return this.models.remove(workspaceId, id);
+  remove(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @Query('cascade') cascade?: string,
+  ) {
+    return this.models.remove(workspaceId, id, parseCascade(cascade));
   }
 
   // 저장 없이 한 번 호출해 보는 용도 (응답 텍스트, 토큰, 지연시간, 비용)

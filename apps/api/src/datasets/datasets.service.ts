@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { parse } from 'csv-parse/sync';
+import { assertDeletable } from '../common/run-usage';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateDatasetDto } from './dto/create-dataset.dto';
 
@@ -55,11 +56,14 @@ export class DatasetsService {
     return dataset;
   }
 
-  async remove(workspaceId: string, id: string) {
-    const { count } = await this.prisma.dataset.deleteMany({
-      where: { id, workspaceId },
-    });
-    if (count === 0) throw new NotFoundException('데이터셋을 찾을 수 없습니다.');
+  async remove(workspaceId: string, id: string, cascade = false) {
+    const exists = await this.prisma.dataset.count({ where: { id, workspaceId } });
+    if (exists === 0) throw new NotFoundException('데이터셋을 찾을 수 없습니다.');
+    await assertDeletable(this.prisma, workspaceId, { datasetId: id }, '이 데이터셋', cascade);
+    await this.prisma.$transaction([
+      this.prisma.run.deleteMany({ where: { workspaceId, datasetId: id } }),
+      this.prisma.dataset.deleteMany({ where: { id, workspaceId } }),
+    ]);
   }
 
   private parseCsv(csv: string) {

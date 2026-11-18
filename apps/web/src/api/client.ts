@@ -21,11 +21,16 @@ export function saveToken(token: string | null) {
 
 export class ApiError extends Error {
   status: number
+  // 삭제 보호(409)처럼 화면이 분기해야 하는 오류만 서버가 code 를 붙여 준다
+  code?: string
+  runCount?: number
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, extra: { code?: string; runCount?: number } = {}) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.code = extra.code
+    this.runCount = extra.runCount
   }
 }
 
@@ -85,7 +90,11 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   if (!response.ok) {
     if (response.status === 401 && !options.skipAuthRedirect) onUnauthorized?.()
-    throw new ApiError(messageFrom(data, `요청에 실패했습니다. (${response.status})`), response.status)
+    const body = typeof data === 'object' && data !== null ? (data as { code?: unknown; runCount?: unknown }) : {}
+    throw new ApiError(messageFrom(data, `요청에 실패했습니다. (${response.status})`), response.status, {
+      code: typeof body.code === 'string' ? body.code : undefined,
+      runCount: typeof body.runCount === 'number' ? body.runCount : undefined,
+    })
   }
   return data as T
 }

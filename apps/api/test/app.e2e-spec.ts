@@ -503,4 +503,84 @@ describe('API (통합 테스트, 실제 DB + mock 모델)', () => {
       await api().get(`${w}/runs/compare?ids=${idA},${idB}`).set(bearer(user.token)).expect(400);
     });
   });
+
+  describe('삭제 보호', () => {
+    const del = (user: Auth, path: string) =>
+      api().delete(`/workspaces/${user.workspaceId}/${path}`).set(bearer(user.token));
+
+    async function finishedRun(user: Auth) {
+      const fixtures = await createFixtures(user, { items: 2 });
+      const started = await startRun(user, fixtures).expect(202);
+      const run = await waitForRun(user, (started.body as { id: string }).id);
+      return { fixtures, runId: run.id };
+    }
+
+    it('실행 기록이 없는 데이터셋은 바로 지워진다', async () => {
+      const user = await signup();
+      const fixtures = await createFixtures(user, { items: 1 });
+      await del(user, `datasets/${fixtures.datasetId}`).expect(204);
+      await del(user, `datasets/${fixtures.datasetId}`).expect(404);
+    });
+
+    it('실행 기록이 있으면 409(HAS_RUNS)와 건수를 돌려주고, 아무것도 지우지 않는다', async () => {
+      const user = await signup();
+      const { fixtures, runId } = await finishedRun(user);
+
+      for (const path of [`datasets/${fixtures.datasetId}`, `models/${fixtures.modelConfigId}`]) {
+        const res = await del(user, path).expect(409);
+        const body = res.body as { code: string; runCount: number };
+        expect(body.code).toBe('HAS_RUNS');
+        expect(body.runCount).toBe(1);
+      }
+      expect((await getRun(user, runId)).status).toBe('COMPLETED');
+    });
+
+    it('cascade=true 로 지우면 실행 기록도 함께 지워진다', async () => {
+      const user = await signup();
+      const { fixtures, runId } = await finishedRun(user);
+
+      await del(user, `datasets/${fixtures.datasetId}?cascade=true`).expect(204);
+      await api()
+        .get(`/workspaces/${user.workspaceId}/runs/${runId}`)
+        .set(bearer(user.token))
+        .expect(404);
+    });
+
+    it('채점 모델로만 쓰인 모델도 실행 기록이 있으면 막는다', async () => {
+      const user = await signup();
+      const { runId } = await finishedRun(user);
+      const judge = await api()
+        .post(`/workspaces/${user.workspaceId}/models`)
+        .set(bearer(user.token))
+        .send({ label: 'judge', provider: 'mock', model: 'mock' })
+        .expect(201);
+      const judgeId = (judge.body as { id: string }).id;
+      await prisma.run.update({ where: { id: runId }, data: { judgeModelConfigId: judgeId } });
+
+      const res = await del(user, `models/${judgeId}`).expect(409);
+      expect((res.body as { code: string }).code).toBe('HAS_RUNS');
+      await del(user, `models/${judgeId}?cascade=true`).expect(204);
+      await api()
+        .get(`/workspaces/${user.workspaceId}/runs/${runId}`)
+        .set(bearer(user.token))
+        .expect(404);
+    });
+
+    it('진행 중인 실행이 있으면 cascade=true 여도 막는다', async () => {
+      const user = await signup();
+      const fixtures = await createFixtures(user, { model: 'mock-slow', items: 1 });
+      const started = await startRun(user, fixtures).expect(202);
+      const runId = (started.body as { id: string }).id;
+
+      const res = await del(user, `datasets/${fixtures.datasetId}?cascade=true`).expect(409);
+      expect((res.body as { code?: string }).code).toBeUndefined();
+
+      await api()
+        .post(`/workspaces/${user.workspaceId}/runs/${runId}/cancel`)
+        .set(bearer(user.token))
+        .expect(200);
+      // 호출 중이던 mock-slow 질문(3초)이 끝나길 기다린다
+      await sleep(3500);
+    });
+  });
 });

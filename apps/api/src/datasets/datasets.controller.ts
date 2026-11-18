@@ -6,10 +6,12 @@ import {
   HttpCode,
   Param,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { WorkspaceOwnerGuard } from '../workspaces/workspace-owner.guard';
+import { parseCascade } from '../common/run-usage';
 import { DatasetsService } from './datasets.service';
 import { CreateDatasetDto } from './dto/create-dataset.dto';
 
@@ -38,7 +40,11 @@ export class DatasetsController {
 
   @Delete(':id')
   @HttpCode(204)
-  remove(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
-    return this.datasets.remove(workspaceId, id);
+  remove(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @Query('cascade') cascade?: string,
+  ) {
+    return this.datasets.remove(workspaceId, id, parseCascade(cascade));
   }
 }
