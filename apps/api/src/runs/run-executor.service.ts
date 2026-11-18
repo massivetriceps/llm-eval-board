@@ -6,13 +6,21 @@ import { LlmCallError } from '../llm/llm.errors';
 import { LlmService, type ModelCallConfig } from '../llm/llm.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ScoringService } from '../scoring/scoring.service';
-import type { ScorerName } from '../scoring/scorers';
+import { Bm25Index } from '../rag/bm25';
+import { normalize, type ScorerName } from '../scoring/scorers';
 
 interface RunItem {
   id: string;
   position: number;
   input: string;
   expected: string | null;
+  evidence: string | null;
+}
+
+interface Retrieval {
+  index: Bm25Index;
+  chunks: string[];
+  topK: number;
 }
 
 interface RunContext {
@@ -21,6 +29,8 @@ interface RunContext {
   modelConfig: ModelCallConfig;
   scorer: ScorerName;
   judge: ModelCallConfig | null;
+  // RAG 실행이면 문서 검색기. 아니면 null
+  retrieval: Retrieval | null;
   // 키 오류처럼 계속해도 의미 없는 오류가 나면 여기에 담고 실행을 멈춘다
   fatalError?: string;
 }
@@ -38,6 +48,8 @@ interface ResultData {
   scoreError?: string;
   judgeReason?: string;
   judgeCostUsd?: number;
+  retrieved?: { position: number; score: number }[];
+  hit?: boolean | null;
 }
 
 const ACTIVE_STATUSES = ['PENDING', 'RUNNING'];
@@ -108,7 +120,13 @@ export class RunExecutor implements OnApplicationBootstrap {
         id: { notIn: finished.map((result) => result.itemId) },
       },
       orderBy: { position: 'asc' },
-      select: { id: true, position: true, input: true, expected: true },
+      select: {
+        id: true,
+        position: true,
+        input: true,
+        expected: true,
+        evidence: true,
+      },
     });
 
     const scorer = run.scorer as ScorerName;
@@ -118,12 +136,28 @@ export class RunExecutor implements OnApplicationBootstrap {
             where: { id: run.judgeModelConfigId },
           })
         : null;
+    // RAG: 문서 조각을 불러와 검색기를 만든다. 문서가 지워졌다면 실행을 실패 처리한다
+    let retrieval: Retrieval | null = null;
+    if (run.documentId) {
+      const rows = await this.prisma.documentChunk.findMany({
+        where: { documentId: run.documentId },
+        orderBy: { position: 'asc' },
+        select: { text: true },
+      });
+      if (rows.length === 0) {
+        throw new Error('실행에 쓰는 문서를 찾을 수 없습니다. (삭제되었을 수 있습니다)');
+      }
+      const chunks = rows.map((row) => row.text);
+      retrieval = { index: new Bm25Index(chunks), chunks, topK: run.topK };
+    }
+
     const context: RunContext = {
       runId,
       template: run.prompt.template,
       modelConfig: run.modelConfig,
       scorer,
       judge,
+      retrieval,
     };
     const queue = [...items];
     const workers = Array.from(
@@ -143,8 +177,34 @@ export class RunExecutor implements OnApplicationBootstrap {
   }
 
   private async processItem(context: RunContext, item: RunItem) {
-    // 치환 문자열 안의 $& 같은 특수 패턴이 해석되지 않도록 함수로 넘긴다
-    const prompt = context.template.replaceAll('{{input}}', () => item.input);
+    // 질문과 비슷한 문단을 찾아 {{context}} 에 넣는다
+    const hits = context.retrieval
+      ? context.retrieval.index.search(item.input, context.retrieval.topK)
+      : [];
+    const contextText =
+      hits.length > 0
+        ? hits
+            .map((found, i) => `[${i + 1}] ${context.retrieval?.chunks[found.index]}`)
+            .join('\n\n')
+        : 'No relevant passages found.';
+    // 한 번에 치환해서, 질문이나 문서 안에 {{...}} 가 있어도 다시 치환되지 않게 한다.
+    // (함수로 넘기면 $& 같은 특수 패턴도 해석되지 않는다)
+    const prompt = context.template.replace(
+      /\{\{(input|context)\}\}/g,
+      (_match, key: string) => (key === 'input' ? item.input : contextText),
+    );
+    const retrieved = hits.map((found) => ({
+      position: found.index,
+      score: Math.round(found.score * 1000) / 1000,
+    }));
+    // 근거 글귀가 있는 질문만: 검색된 문단 중 하나라도 그 글귀를 포함하면 hit
+    let evidenceHit: boolean | null = null;
+    if (context.retrieval && item.evidence) {
+      const evidence = normalize(item.evidence);
+      evidenceHit = hits.some((found) =>
+        normalize(context.retrieval?.chunks[found.index] ?? '').includes(evidence),
+      );
+    }
     try {
       const { value, attempts } = await withRetry(
         // 대기(백오프) 중에는 자리를 반납하도록 호출 1회 단위로만 제한한다
@@ -186,6 +246,8 @@ export class RunExecutor implements OnApplicationBootstrap {
         scoreError: outcome.error,
         judgeReason: outcome.reason,
         judgeCostUsd: outcome.judgeCostUsd,
+        retrieved: context.retrieval ? retrieved : undefined,
+        hit: evidenceHit,
       });
     } catch (error) {
       const attempts = error instanceof RetryFailure ? error.attempts : 1;

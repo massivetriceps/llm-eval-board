@@ -60,7 +60,7 @@ export class RunsService {
       }),
       this.prisma.promptVersion.findFirst({
         where: { id: dto.promptId, workspaceId },
-        select: { id: true },
+        select: { id: true, template: true },
       }),
       this.prisma.modelConfig.findFirst({
         where: { id: dto.modelConfigId, workspaceId },
@@ -72,6 +72,25 @@ export class RunsService {
     if (!model) throw new NotFoundException('모델 설정을 찾을 수 없습니다.');
     if (dataset._count.items === 0) {
       throw new BadRequestException('질문이 없는 데이터셋은 실행할 수 없습니다.');
+    }
+
+    // RAG: 문서를 쓰는 실행과 {{context}} 가 있는 프롬프트는 짝이 맞아야 한다
+    const usesContext = prompt.template.includes('{{context}}');
+    if (dto.documentId) {
+      const document = await this.prisma.document.findFirst({
+        where: { id: dto.documentId, workspaceId },
+        select: { id: true },
+      });
+      if (!document) throw new NotFoundException('문서를 찾을 수 없습니다.');
+      if (!usesContext) {
+        throw new BadRequestException(
+          '문서를 쓰려면 프롬프트에 {{context}} 자리가 있어야 합니다.',
+        );
+      }
+    } else if (usesContext) {
+      throw new BadRequestException(
+        '프롬프트에 {{context}} 가 있으면 documentId 가 필요합니다.',
+      );
     }
 
     const scorer = dto.scorer ?? 'none';
@@ -129,6 +148,8 @@ export class RunsService {
           scorer,
           judgeModelConfigId:
             scorer === 'judge' ? (dto.judgeModelConfigId ?? null) : null,
+          documentId: dto.documentId ?? null,
+          topK: dto.topK ?? 3,
           idempotencyKey: idempotencyKey ?? null,
         },
       });
@@ -165,7 +186,7 @@ export class RunsService {
     });
     if (!run) throw new NotFoundException('실행을 찾을 수 없습니다.');
 
-    const [counts, aggregate] = await Promise.all([
+    const [counts, aggregate, hitCount, hitTotal] = await Promise.all([
       this.countsByRun([id]),
       this.prisma.runResult.aggregate({
         where: { runId: id },
@@ -178,6 +199,8 @@ export class RunsService {
         _avg: { latencyMs: true, score: true },
         _count: { score: true },
       }),
+      this.prisma.runResult.count({ where: { runId: id, hit: true } }),
+      this.prisma.runResult.count({ where: { runId: id, hit: { not: null } } }),
     ]);
     return {
       ...this.withProgress(run, counts.get(id)),
@@ -190,6 +213,8 @@ export class RunsService {
         // 0~1. 채점된 결과가 하나도 없으면 null (exact 채점이면 정확도와 같다)
         avgScore: aggregate._avg.score,
         scoredCount: aggregate._count.score,
+        // RAG: 정답 근거가 검색 결과에 들어 있던 비율. 근거가 있는 질문이 없으면 null
+        hitRate: hitTotal > 0 ? hitCount / hitTotal : null,
       },
     };
   }

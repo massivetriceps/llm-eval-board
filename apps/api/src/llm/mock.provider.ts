@@ -21,6 +21,7 @@ function sleep(ms: number): Promise<void> {
 //  mock-down      : 항상 503 (재시도 소진 확인용)
 //  mock-bad-key   : 항상 401 (실행 중단 확인용)
 //  mock-judge     : 채점용. 1~5 점 JSON 을 돌려준다
+//  mock-rag       : 프롬프트의 [1] 문단(검색 1등)을 그대로 답으로 돌려준다 (RAG 확인용)
 @Injectable()
 export class MockProvider implements LlmProvider {
   async generate(model: string, prompt: string): Promise<LlmResult> {
@@ -35,6 +36,17 @@ export class MockProvider implements LlmProvider {
     }
     if (model === 'mock-flaky' && Math.random() < 0.4) {
       throw new MockApiError('service unavailable', 503);
+    }
+
+    if (model === 'mock-rag') {
+      const match = /\[1\] ([\s\S]*?)(?:\n\n|$)/.exec(prompt);
+      const text = match ? match[1] : 'no context';
+      return {
+        text,
+        inputTokens: Math.ceil(prompt.length / 4),
+        outputTokens: Math.ceil(text.length / 4),
+        latencyMs: Math.round(performance.now() - startedAt),
+      };
     }
 
     if (model === 'mock-judge') {

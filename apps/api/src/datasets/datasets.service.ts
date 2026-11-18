@@ -89,7 +89,13 @@ export class DatasetsService {
         throw new BadRequestException(`${index + 2}번째 줄의 input 이 비어 있습니다.`);
       }
       const expected = (record.expected ?? '').trim();
-      return { position: index, input, expected: expected || null };
+      const evidence = (record.evidence ?? '').trim();
+      return {
+        position: index,
+        input,
+        expected: expected || null,
+        evidence: evidence || null,
+      };
     });
   }
 }
