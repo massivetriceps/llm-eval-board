@@ -275,6 +275,17 @@ function PromptsTab() {
   const sel = useSelection()
   const [notice, setNotice] = useState<string | null>(null)
 
+  // 저장된 버전은 고치지 않는다(실행 기록과 결과를 재현할 수 있게). 수정은 내용을 폼에 불러와 새 버전으로 저장한다
+  const nextVersion = (list.data ?? [])
+    .filter((p) => p.name === name.trim())
+    .reduce((max, p) => Math.max(max, p.version), 0) + 1
+
+  function loadForEdit(p: { name: string; version: number; template: string }) {
+    setName(p.name)
+    setTemplate(p.template)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   async function remove(id: string, label: string) {
     if (!window.confirm(`"${label}" 을(를) 삭제할까요?`)) return
     await form.run(() => removeConfirmingRuns((cascade) => prompts.remove(workspaceId, id, cascade), label))
@@ -318,8 +329,13 @@ function PromptsTab() {
           <p className="text-xs text-slate-500">
             <code>{'{{input}}'}</code> 은 필수이고, 문서 검색(RAG)을 쓰려면 <code>{'{{context}}'}</code> 도 넣으세요.
           </p>
+          {nextVersion > 1 && (
+            <p className="text-xs text-blue-600">
+              같은 이름이 있어서 <b>v{nextVersion}</b> 으로 저장됩니다. 이전 버전과 실행 기록은 그대로 남습니다.
+            </p>
+          )}
           <button type="submit" className={buttonPrimary} disabled={form.busy}>
-            추가
+            {nextVersion > 1 ? `v${nextVersion} 로 저장` : '추가'}
           </button>
         </form>
       </Panel>
@@ -350,9 +366,12 @@ function PromptsTab() {
                 <span>
                   {p.name} <span className="text-slate-400">v{p.version}</span>
                 </span>
+                <button type="button" className={`${buttonSecondary} ml-auto`} onClick={() => loadForEdit(p)}>
+                  수정(새 버전)
+                </button>
                 <button
                   type="button"
-                  className={`${buttonDanger} ml-auto`}
+                  className={buttonDanger}
                   disabled={form.busy}
                   onClick={() => void remove(p.id, `${p.name} v${p.version}`)}
                 >
