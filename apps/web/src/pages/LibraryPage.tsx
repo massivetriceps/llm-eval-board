@@ -3,7 +3,9 @@ import { ApiError } from '../api/client.ts'
 import { datasets, documents, models, prompts, type CreateModelInput } from '../api/endpoints.ts'
 import type { ProviderName } from '../api/types.ts'
 import { useWorkspaceId } from '../auth/auth-context.ts'
+import { BulkBar } from '../components/BulkBar.tsx'
 import { EmptyState, ErrorBox, Loading } from '../components/Feedback.tsx'
+import { removeMany, summarize, useSelection } from '../lib/bulk.ts'
 import { formatDate } from '../lib/format.ts'
 import { buttonDanger, buttonPrimary, buttonSecondary, card, input, td, th } from '../lib/ui.ts'
 import { useResource } from '../lib/useResource.ts'
@@ -212,10 +214,23 @@ function PromptsTab() {
   const [name, setName] = useState('')
   const [template, setTemplate] = useState('')
   const form = useSubmit(list.reload)
+  const sel = useSelection()
+  const [notice, setNotice] = useState<string | null>(null)
 
   async function remove(id: string, label: string) {
     if (!window.confirm(`"${label}" 을(를) 삭제할까요?`)) return
     await form.run(() => removeConfirmingRuns((cascade) => prompts.remove(workspaceId, id, cascade), label))
+  }
+
+  // 실행 기록이 있는 프롬프트는 건너뛴다. 기록까지 지우려면 하나씩 삭제해서 확인을 거친다
+  async function removeSelected() {
+    if (!window.confirm(`선택한 ${sel.ids.length}개 프롬프트를 삭제할까요?\n실행 기록이 있는 프롬프트는 건너뜁니다.`)) return
+    setNotice(null)
+    await form.run(async () => {
+      const result = await removeMany(sel.ids, (id) => prompts.remove(workspaceId, id))
+      sel.clear()
+      setNotice(summarize(result, '실행 기록이 있어'))
+    })
   }
 
   return (
@@ -254,10 +269,26 @@ function PromptsTab() {
         {list.error && <ErrorBox message={list.error} />}
         {list.loading && <Loading />}
         {list.data?.length === 0 && <EmptyState>아직 프롬프트가 없습니다.</EmptyState>}
+        {list.data && list.data.length > 0 && (
+          <BulkBar
+            total={list.data.length}
+            checked={sel.ids.length}
+            onToggleAll={(all) => sel.setAll(all ? (list.data ?? []).map((p) => p.id) : [])}
+            onDelete={() => void removeSelected()}
+            busy={form.busy}
+            notice={notice}
+          />
+        )}
         <div className="space-y-3">
           {list.data?.map((p) => (
             <div key={p.id} className="rounded-lg border border-slate-200 p-3">
               <div className="flex items-center gap-2 text-sm font-medium">
+                <input
+                  type="checkbox"
+                  checked={sel.has(p.id)}
+                  onChange={() => sel.toggle(p.id)}
+                  aria-label="삭제할 프롬프트 선택"
+                />
                 <span>
                   {p.name} <span className="text-slate-400">v{p.version}</span>
                 </span>
@@ -296,6 +327,8 @@ const MOCK_PRESETS: CreateModelInput[] = [
 function ModelsTab() {
   const workspaceId = useWorkspaceId()
   const list = useResource(`models:${workspaceId}`, () => models.list(workspaceId))
+  const sel = useSelection()
+  const [bulkNotice, setBulkNotice] = useState<string | null>(null)
   const [provider, setProvider] = useState<ProviderName>('gemini')
   const [label, setLabel] = useState('')
   const [model, setModel] = useState('')
@@ -321,6 +354,17 @@ function ModelsTab() {
   async function remove(id: string, text: string) {
     if (!window.confirm(`"${text}" 을(를) 삭제할까요?`)) return
     await form.run(() => removeConfirmingRuns((cascade) => models.remove(workspaceId, id, cascade), text))
+  }
+
+  // 실행 기록이 있는 모델은 건너뛴다. 기록까지 지우려면 하나씩 삭제해서 확인을 거친다
+  async function removeSelected() {
+    if (!window.confirm(`선택한 ${sel.ids.length}개 모델을 삭제할까요?\n실행 기록이 있는 모델은 건너뜁니다.`)) return
+    setBulkNotice(null)
+    await form.run(async () => {
+      const result = await removeMany(sel.ids, (id) => models.remove(workspaceId, id))
+      sel.clear()
+      setBulkNotice(summarize(result, '실행 기록이 있어'))
+    })
   }
 
   async function addMocks() {
@@ -409,9 +453,20 @@ function ModelsTab() {
         {list.loading && <Loading />}
         {list.data?.length === 0 && <EmptyState>아직 모델이 없습니다.</EmptyState>}
         {list.data && list.data.length > 0 && (
+          <BulkBar
+            total={list.data.length}
+            checked={sel.ids.length}
+            onToggleAll={(all) => sel.setAll(all ? (list.data ?? []).map((m) => m.id) : [])}
+            onDelete={() => void removeSelected()}
+            busy={form.busy}
+            notice={bulkNotice}
+          />
+        )}
+        {list.data && list.data.length > 0 && (
           <table className="w-full">
             <thead className="border-b border-slate-200">
               <tr>
+                <th className={th} />
                 <th className={th}>이름</th>
                 <th className={th}>제공자 · 모델</th>
                 <th className={th}>단가 (입력/출력)</th>
@@ -421,6 +476,14 @@ function ModelsTab() {
             <tbody className="divide-y divide-slate-100">
               {list.data.map((m) => (
                 <tr key={m.id}>
+                  <td className={td}>
+                    <input
+                      type="checkbox"
+                      checked={sel.has(m.id)}
+                      onChange={() => sel.toggle(m.id)}
+                      aria-label="삭제할 모델 선택"
+                    />
+                  </td>
                   <td className={td}>{m.label}</td>
                   <td className={`${td} text-slate-500`}>
                     {m.provider} · {m.model}

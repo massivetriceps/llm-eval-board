@@ -4,8 +4,10 @@ import { runs } from '../api/endpoints.ts'
 import type { RunListItem } from '../api/types.ts'
 import { useWorkspaceId } from '../auth/auth-context.ts'
 import { EmptyState, ErrorBox, Loading } from '../components/Feedback.tsx'
+import { BulkBar } from '../components/BulkBar.tsx'
 import { ProgressBar } from '../components/ProgressBar.tsx'
 import { StatusBadge, isActive } from '../components/StatusBadge.tsx'
+import { removeMany, summarize } from '../lib/bulk.ts'
 import { formatDate, formatMs, formatPercent, formatUsd } from '../lib/format.ts'
 import { buttonDanger, buttonPrimary, buttonSecondary, card, td, th } from '../lib/ui.ts'
 import { useResource } from '../lib/useResource.ts'
@@ -25,7 +27,7 @@ export function RunsPage() {
 
   function toggle(id: string) {
     setSelected((prev) =>
-      prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id].slice(-6),
+      prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id],
     )
   }
 
@@ -51,7 +53,32 @@ export function RunsPage() {
   const chosen = (list.data ?? []).filter((run) => selected.includes(run.id))
   const datasets = new Set(chosen.map((run) => run.dataset.name))
   const sameDataset = datasets.size <= 1
-  const canCompare = chosen.length >= 2 && sameDataset
+  // 비교는 2~6개까지, 삭제는 개수 제한이 없다
+  const canCompare = chosen.length >= 2 && chosen.length <= 6 && sameDataset
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  async function removeSelected() {
+    const targets = chosen.filter((run) => !isActive(run.status))
+    const activeCount = chosen.length - targets.length
+    if (targets.length === 0) {
+      setNotice('진행 중인 실행은 삭제할 수 없어요. 먼저 취소해 주세요.')
+      return
+    }
+    const extra = activeCount > 0 ? `\n(진행 중인 ${activeCount}개는 제외됩니다)` : ''
+    if (!window.confirm(`선택한 ${targets.length}개 실행을 삭제할까요?\n질문별 결과도 함께 지워지고 되돌릴 수 없습니다.${extra}`)) return
+    setBulkBusy(true)
+    setNotice(null)
+    setDeleteError(null)
+    const result = await removeMany(
+      targets.map((run) => run.id),
+      (id) => runs.remove(workspaceId, id),
+    )
+    setSelected([])
+    setBulkBusy(false)
+    list.reload()
+    setNotice(summarize(result, '진행 중이라'))
+  }
 
   return (
     <div className="space-y-4">
@@ -61,6 +88,7 @@ export function RunsPage() {
           {chosen.length >= 2 && !sameDataset && (
             <span className="text-xs text-amber-600">같은 데이터셋끼리만 비교할 수 있어요</span>
           )}
+          {chosen.length > 6 && <span className="text-xs text-amber-600">비교는 6개까지 고를 수 있어요</span>}
           <button
             type="button"
             className={buttonSecondary}
@@ -77,6 +105,16 @@ export function RunsPage() {
 
       {list.error && <ErrorBox message={list.error} />}
       {deleteError && <ErrorBox message={deleteError} />}
+      {list.data && list.data.length > 0 && (
+        <BulkBar
+          total={list.data.length}
+          checked={chosen.length}
+          onToggleAll={(all) => setSelected(all ? (list.data ?? []).map((run) => run.id) : [])}
+          onDelete={() => void removeSelected()}
+          busy={bulkBusy}
+          notice={notice}
+        />
+      )}
       {list.loading && <Loading />}
       {list.data && list.data.length === 0 && (
         <EmptyState>
