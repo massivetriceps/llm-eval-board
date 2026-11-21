@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
+import { Fragment, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
 import { ApiError } from '../api/client.ts'
 import { datasets, documents, models, prompts, type CreateModelInput } from '../api/endpoints.ts'
 import type { ProviderName } from '../api/types.ts'
@@ -113,8 +113,48 @@ function Label({ text, children }: { text: string; children: ReactNode }) {
   )
 }
 
+// 데이터셋 한 줄을 펼치면 앞의 20문항을 보여 준다 (서버가 미리보기로 20건만 돌려준다)
+function DatasetPreview({ id }: { id: string }) {
+  const workspaceId = useWorkspaceId()
+  const detail = useResource(`dataset:${id}`, () => datasets.get(workspaceId, id))
+  if (detail.loading) return <Loading />
+  if (detail.error) return <ErrorBox message={detail.error} />
+  if (!detail.data) return null
+  const { items, _count } = detail.data
+  const hasExpected = items.some((item) => item.expected)
+  const hasEvidence = items.some((item) => item.evidence)
+  return (
+    <div className="space-y-2">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-left text-slate-500">
+            <th className="w-8 py-1 pr-2 font-medium">#</th>
+            <th className="py-1 pr-2 font-medium">질문 (input)</th>
+            {hasExpected && <th className="py-1 pr-2 font-medium">정답 (expected)</th>}
+            {hasEvidence && <th className="py-1 font-medium">근거 (evidence)</th>}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {items.map((item) => (
+            <tr key={item.id} className="align-top">
+              <td className="py-1 pr-2 tabular-nums text-slate-400">{item.position + 1}</td>
+              <td className="py-1 pr-2">{item.input}</td>
+              {hasExpected && <td className="py-1 pr-2 text-slate-600">{item.expected ?? '-'}</td>}
+              {hasEvidence && <td className="py-1 text-slate-600">{item.evidence ?? '-'}</td>}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {_count.items > items.length && (
+        <p className="text-xs text-slate-400">앞의 {items.length}문항만 보여 줍니다. (전체 {_count.items}문항)</p>
+      )}
+    </div>
+  )
+}
+
 function DatasetsTab() {
   const workspaceId = useWorkspaceId()
+  const [openId, setOpenId] = useState<string | null>(null)
   const list = useResource(`datasets:${workspaceId}`, () => datasets.list(workspaceId))
   const [name, setName] = useState('')
   const [csv, setCsv] = useState('')
@@ -189,16 +229,34 @@ function DatasetsTab() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {list.data.map((d) => (
-                <tr key={d.id}>
-                  <td className={td}>{d.name}</td>
-                  <td className={`${td} tabular-nums`}>{d._count.items}</td>
-                  <td className={`${td} text-slate-500`}>{formatDate(d.createdAt)}</td>
-                  <td className={`${td} text-right`}>
-                    <button type="button" className={buttonDanger} onClick={() => void remove(d.id, d.name)}>
-                      삭제
-                    </button>
-                  </td>
-                </tr>
+                <Fragment key={d.id}>
+                  <tr>
+                    <td className={td}>
+                      <button
+                        type="button"
+                        className="text-left font-medium text-blue-700 hover:underline"
+                        aria-expanded={openId === d.id}
+                        onClick={() => setOpenId((prev) => (prev === d.id ? null : d.id))}
+                      >
+                        {openId === d.id ? '▾' : '▸'} {d.name}
+                      </button>
+                    </td>
+                    <td className={`${td} tabular-nums`}>{d._count.items}</td>
+                    <td className={`${td} text-slate-500`}>{formatDate(d.createdAt)}</td>
+                    <td className={`${td} text-right`}>
+                      <button type="button" className={buttonDanger} onClick={() => void remove(d.id, d.name)}>
+                        삭제
+                      </button>
+                    </td>
+                  </tr>
+                  {openId === d.id && (
+                    <tr>
+                      <td colSpan={4} className="bg-slate-50 px-3 py-2">
+                        <DatasetPreview id={d.id} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>

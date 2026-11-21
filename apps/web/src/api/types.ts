@@ -14,6 +14,19 @@ export interface Dataset {
   _count: { items: number }
 }
 
+export interface DatasetItem {
+  id: string
+  position: number
+  input: string
+  expected: string | null
+  evidence: string | null
+}
+
+// 상세 조회는 앞의 20문항만 미리보기로 돌려준다
+export interface DatasetDetail extends Dataset {
+  items: DatasetItem[]
+}
+
 export interface PromptVersion {
   id: string
   name: string

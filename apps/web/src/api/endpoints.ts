@@ -3,6 +3,7 @@ import type {
   CompareResponse,
   CreateRunInput,
   Dataset,
+  DatasetDetail,
   DocumentSummary,
   ModelConfig,
   PromptVersion,
@@ -37,6 +38,7 @@ export const workspaces = {
 
 export const datasets = {
   list: (w: string) => request<Dataset[]>(`${ws(w)}/datasets`),
+  get: (w: string, id: string) => request<DatasetDetail>(`${ws(w)}/datasets/${id}`),
   create: (w: string, name: string, csv: string) =>
     request<Dataset>(`${ws(w)}/datasets`, { method: 'POST', body: { name, csv } }),
   // cascade=true 면 이 항목을 쓴 실행 기록도 함께 지운다
