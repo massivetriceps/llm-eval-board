@@ -98,6 +98,11 @@ export class RunExecutor implements OnApplicationBootstrap {
       });
   }
 
+  // 취소된 뒤에도 이미 호출 중이던 질문이 끝나기 전까지는 true 다. 이 동안 삭제하면 결과 쓰기가 깨진다
+  isActive(runId: string) {
+    return this.active.has(runId);
+  }
+
   cancel(runId: string) {
     if (this.active.has(runId)) this.cancelled.add(runId);
   }

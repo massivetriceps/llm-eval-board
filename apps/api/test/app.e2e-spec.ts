@@ -583,4 +583,74 @@ describe('API (통합 테스트, 실제 DB + mock 모델)', () => {
       await sleep(3500);
     });
   });
+
+  describe('실행·프롬프트 삭제', () => {
+    const del = (user: Auth, path: string) =>
+      api().delete(`/workspaces/${user.workspaceId}/${path}`).set(bearer(user.token));
+
+    it('끝난 실행은 삭제할 수 있고, 결과도 함께 사라진다', async () => {
+      const user = await signup();
+      const fixtures = await createFixtures(user, { items: 2 });
+      const started = await startRun(user, fixtures).expect(202);
+      const run = await waitForRun(user, (started.body as { id: string }).id);
+
+      await del(user, `runs/${run.id}`).expect(204);
+      await api()
+        .get(`/workspaces/${user.workspaceId}/runs/${run.id}`)
+        .set(bearer(user.token))
+        .expect(404);
+      expect(await prisma.runResult.count({ where: { runId: run.id } })).toBe(0);
+      await del(user, `runs/${run.id}`).expect(404);
+    });
+
+    it('진행 중인 실행은 삭제할 수 없고, 취소하고 정리된 뒤에는 삭제된다', async () => {
+      const user = await signup();
+      const fixtures = await createFixtures(user, { model: 'mock-slow', items: 1 });
+      const started = await startRun(user, fixtures).expect(202);
+      const runId = (started.body as { id: string }).id;
+
+      await del(user, `runs/${runId}`).expect(409);
+      await api()
+        .post(`/workspaces/${user.workspaceId}/runs/${runId}/cancel`)
+        .set(bearer(user.token))
+        .expect(200);
+      // 호출 중이던 mock-slow 질문(3초)이 끝나서 실행기가 정리되길 기다린다
+      await sleep(3500);
+      await del(user, `runs/${runId}`).expect(204);
+    });
+
+    it('실행 기록이 있는 프롬프트는 409(HAS_RUNS), cascade=true 면 기록까지 지운다', async () => {
+      const user = await signup();
+      const fixtures = await createFixtures(user, { items: 2 });
+      const started = await startRun(user, fixtures).expect(202);
+      const run = await waitForRun(user, (started.body as { id: string }).id);
+
+      const res = await del(user, `prompts/${fixtures.promptId}`).expect(409);
+      const body = res.body as { code: string; runCount: number };
+      expect(body.code).toBe('HAS_RUNS');
+      expect(body.runCount).toBe(1);
+
+      await del(user, `prompts/${fixtures.promptId}?cascade=true`).expect(204);
+      await api()
+        .get(`/workspaces/${user.workspaceId}/runs/${run.id}`)
+        .set(bearer(user.token))
+        .expect(404);
+    });
+
+    it('실행 기록이 없는 프롬프트는 바로 지워지고, 남의 프롬프트는 404', async () => {
+      const user = await signup();
+      const other = await signup();
+      const w = `/workspaces/${user.workspaceId}`;
+      const created = await api()
+        .post(`${w}/prompts`)
+        .set(bearer(user.token))
+        .send({ name: 'tmp', template: 'Q: {{input}}' })
+        .expect(201);
+      const id = (created.body as { id: string }).id;
+
+      await del(other, `prompts/${id}`).expect(404);
+      await del(user, `prompts/${id}`).expect(204);
+      await del(user, `prompts/${id}`).expect(404);
+    });
+  });
 });

@@ -7,7 +7,7 @@ import { EmptyState, ErrorBox, Loading } from '../components/Feedback.tsx'
 import { ProgressBar } from '../components/ProgressBar.tsx'
 import { StatusBadge, isActive } from '../components/StatusBadge.tsx'
 import { formatDate, formatMs, formatPercent, formatUsd } from '../lib/format.ts'
-import { buttonPrimary, buttonSecondary, card, td, th } from '../lib/ui.ts'
+import { buttonDanger, buttonPrimary, buttonSecondary, card, td, th } from '../lib/ui.ts'
 import { useResource } from '../lib/useResource.ts'
 
 const SCORER_LABELS = { none: '-', exact: '정답 일치', contains: '정답 포함', judge: 'LLM 심판' }
@@ -27,6 +27,25 @@ export function RunsPage() {
     setSelected((prev) =>
       prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id].slice(-6),
     )
+  }
+
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  async function removeRun(run: RunListItem) {
+    const label = `${run.modelConfig.label} · ${run.prompt.name} v${run.prompt.version}`
+    if (!window.confirm(`"${label}" 실행을 삭제할까요?\n질문별 결과도 함께 지워지고 되돌릴 수 없습니다.`)) return
+    setDeleteError(null)
+    setDeletingId(run.id)
+    try {
+      await runs.remove(workspaceId, run.id)
+      setSelected((prev) => prev.filter((id) => id !== run.id))
+      list.reload()
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   const chosen = (list.data ?? []).filter((run) => selected.includes(run.id))
@@ -57,6 +76,7 @@ export function RunsPage() {
       </div>
 
       {list.error && <ErrorBox message={list.error} />}
+      {deleteError && <ErrorBox message={deleteError} />}
       {list.loading && <Loading />}
       {list.data && list.data.length === 0 && (
         <EmptyState>
@@ -69,7 +89,7 @@ export function RunsPage() {
       )}
       {list.data && list.data.length > 0 && (
         <div className={`${card} overflow-x-auto`}>
-          <table className="w-full min-w-[860px]">
+          <table className="w-full min-w-[920px]">
             <thead className="border-b border-slate-200">
               <tr>
                 <th className={th} />
@@ -83,6 +103,7 @@ export function RunsPage() {
                 <th className={th}>비용</th>
                 <th className={th}>평균 지연</th>
                 <th className={th}>시작</th>
+                <th className={th} />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -92,6 +113,8 @@ export function RunsPage() {
                   run={run}
                   checked={selected.includes(run.id)}
                   onToggle={() => toggle(run.id)}
+                  onDelete={() => void removeRun(run)}
+                  deleting={deletingId === run.id}
                 />
               ))}
             </tbody>
@@ -106,10 +129,14 @@ function RunRow({
   run,
   checked,
   onToggle,
+  onDelete,
+  deleting,
 }: {
   run: RunListItem
   checked: boolean
   onToggle: () => void
+  onDelete: () => void
+  deleting: boolean
 }) {
   return (
     <tr className="hover:bg-slate-50">
@@ -147,6 +174,17 @@ function RunRow({
       <td className={`${td} tabular-nums`}>{formatUsd(run.summary.costUsd)}</td>
       <td className={`${td} tabular-nums`}>{formatMs(run.summary.avgLatencyMs)}</td>
       <td className={`${td} text-slate-500`}>{formatDate(run.startedAt ?? run.createdAt)}</td>
+      <td className={td}>
+        <button
+          type="button"
+          className={buttonDanger}
+          disabled={deleting || isActive(run.status)}
+          title={isActive(run.status) ? '진행 중인 실행은 먼저 취소해야 삭제할 수 있어요' : undefined}
+          onClick={onDelete}
+        >
+          삭제
+        </button>
+      </td>
     </tr>
   )
 }

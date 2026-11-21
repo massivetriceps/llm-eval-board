@@ -385,6 +385,26 @@ export class RunsService {
     return { id, status: 'CANCELLED' };
   }
 
+  // 끝난 실행만 지운다. 결과(RunResult)는 FK 연쇄로 함께 지워진다
+  async remove(workspaceId: string, id: string) {
+    const run = await this.prisma.run.findFirst({
+      where: { id, workspaceId },
+      select: { status: true },
+    });
+    if (!run) throw new NotFoundException('실행을 찾을 수 없습니다.');
+    if (run.status === 'PENDING' || run.status === 'RUNNING') {
+      throw new ConflictException('진행 중인 실행은 삭제할 수 없습니다. 먼저 취소해 주세요.');
+    }
+    if (this.executor.isActive(id)) {
+      throw new ConflictException('실행을 정리하는 중입니다. 잠시 뒤에 다시 시도해 주세요.');
+    }
+    // 상태 확인과 삭제 사이에 다시 시작되는 일이 없도록 조건을 한 번 더 건다
+    const { count } = await this.prisma.run.deleteMany({
+      where: { id, workspaceId, status: { notIn: ['PENDING', 'RUNNING'] } },
+    });
+    if (count === 0) throw new ConflictException('실행 상태가 바뀌어 삭제하지 못했습니다.');
+  }
+
   private async countsByRun(runIds: string[]) {
     const rows = await this.prisma.runResult.groupBy({
       by: ['runId', 'status'],

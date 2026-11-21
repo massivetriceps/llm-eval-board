@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpCode,
@@ -52,6 +53,12 @@ export class RunsController {
   @Get(':id/results')
   results(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
     return this.runs.results(workspaceId, id);
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  remove(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
+    return this.runs.remove(workspaceId, id);
   }
 
   @Post(':id/cancel')

@@ -213,6 +213,11 @@ function PromptsTab() {
   const [template, setTemplate] = useState('')
   const form = useSubmit(list.reload)
 
+  async function remove(id: string, label: string) {
+    if (!window.confirm(`"${label}" 을(를) 삭제할까요?`)) return
+    await form.run(() => removeConfirmingRuns((cascade) => prompts.remove(workspaceId, id, cascade), label))
+  }
+
   return (
     <div className="grid gap-4 lg:grid-cols-[2fr_3fr]">
       <Panel title="프롬프트 추가">
@@ -252,8 +257,18 @@ function PromptsTab() {
         <div className="space-y-3">
           {list.data?.map((p) => (
             <div key={p.id} className="rounded-lg border border-slate-200 p-3">
-              <div className="text-sm font-medium">
-                {p.name} <span className="text-slate-400">v{p.version}</span>
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <span>
+                  {p.name} <span className="text-slate-400">v{p.version}</span>
+                </span>
+                <button
+                  type="button"
+                  className={`${buttonDanger} ml-auto`}
+                  disabled={form.busy}
+                  onClick={() => void remove(p.id, `${p.name} v${p.version}`)}
+                >
+                  삭제
+                </button>
               </div>
               <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap text-xs text-slate-600">{p.template}</pre>
             </div>

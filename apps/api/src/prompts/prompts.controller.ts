@@ -1,6 +1,17 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { WorkspaceOwnerGuard } from '../workspaces/workspace-owner.guard';
+import { parseCascade } from '../common/run-usage';
 import { CreatePromptDto } from './dto/create-prompt.dto';
 import { PromptsService } from './prompts.service';
 
@@ -20,5 +31,15 @@ export class PromptsController {
   @Get()
   list(@Param('workspaceId') workspaceId: string) {
     return this.prompts.list(workspaceId);
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  remove(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @Query('cascade') cascade?: string,
+  ) {
+    return this.prompts.remove(workspaceId, id, parseCascade(cascade));
   }
 }

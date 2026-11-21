@@ -48,6 +48,8 @@ export const prompts = {
   list: (w: string) => request<PromptVersion[]>(`${ws(w)}/prompts`),
   create: (w: string, name: string, template: string) =>
     request<PromptVersion>(`${ws(w)}/prompts`, { method: 'POST', body: { name, template } }),
+  remove: (w: string, id: string, cascade = false) =>
+    request<void>(`${ws(w)}/prompts/${id}${cascade ? '?cascade=true' : ''}`, { method: 'DELETE' }),
 }
 
 export interface CreateModelInput {
@@ -89,6 +91,8 @@ export const runs = {
       body: input,
       headers: { 'Idempotency-Key': idempotencyKey },
     }),
+  remove: (w: string, id: string) =>
+    request<void>(`${ws(w)}/runs/${id}`, { method: 'DELETE' }),
   cancel: (w: string, id: string) =>
     request<unknown>(`${ws(w)}/runs/${id}/cancel`, { method: 'POST' }),
   compare: (w: string, ids: string[]) =>
