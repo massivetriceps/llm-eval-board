@@ -286,8 +286,8 @@ export class RunsService {
       entry.cells[result.runId] = {
         status: result.status,
         score: result.score,
-        // 비교 화면에서는 앞부분만 보여 주면 충분하다
-        output: result.output ? result.output.slice(0, 300) : null,
+        // 비교 화면에서 응답이 중간에 끊겨 보이지 않도록 넉넉히 내려 준다
+        output: result.output ? result.output.slice(0, 2000) : null,
       };
       items.set(result.itemId, entry);
     }
