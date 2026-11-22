@@ -72,6 +72,8 @@ export interface RunBase {
   status: RunStatus
   total: number
   scorer: ScorerName
+  // judge 채점일 때 심판 모델의 표시 이름. 그 밖에는 null
+  judgeModel: string | null
   topK: number
   documentId: string | null
   error: string | null
@@ -151,6 +153,7 @@ export interface CompareRun {
   id: string
   status: RunStatus
   scorer: ScorerName
+  judgeModel: string | null
   topK: number
   usesDocument: boolean
   dataset: { name: string }

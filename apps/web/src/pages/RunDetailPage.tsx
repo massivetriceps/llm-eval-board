@@ -126,7 +126,11 @@ function Summary({ run }: { run: RunDetail }) {
       <Kpi
         label={scoreLabel}
         value={formatPercent(summary.overallScore)}
-        hint={summary.scoredCount > 0 ? `${summary.scoredCount}문항 채점 · 실패는 0점` : '채점 안 함'}
+        hint={
+          summary.scoredCount > 0
+            ? `${summary.scoredCount}문항 채점 · 실패는 0점${run.scorer === 'judge' && run.judgeModel ? ` · 심판 ${run.judgeModel}` : ''}`
+            : '채점 안 함'
+        }
       />
       {summary.hitRate !== null && (
         <Kpi label="검색 적중률" value={formatPercent(summary.hitRate)} hint={`상위 ${run.topK}개 문단 기준`} />

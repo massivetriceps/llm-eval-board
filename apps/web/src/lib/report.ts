@@ -66,7 +66,7 @@ function runDescription(run: CompareRun, label: string): string {
   const parts = [
     `${run.modelConfig.provider}/${run.modelConfig.model}`,
     `프롬프트 ${run.prompt.name} v${run.prompt.version}`,
-    `채점 ${run.scorer}`,
+    `채점 ${run.scorer}${run.scorer === 'judge' ? ` (심판: ${run.judgeModel ?? '알 수 없음'})` : ''}`,
   ]
   if (run.usesDocument) parts.push(`RAG(top-${run.topK})`)
   return `- **${mdCell(label)}**: ${parts.map(mdCell).join(', ')}`
@@ -118,8 +118,15 @@ export function buildMarkdown(data: CompareResponse, labels: Map<string, string>
       '',
     )
   }
-  if (data.runs.some((run) => run.scorer === 'judge')) {
-    out.push('> LLM 심사(judge) 점수는 심사 모델의 편향(자기 모델 선호 등)이 섞일 수 있습니다.', '')
+  const judges = [
+    ...new Set(data.runs.filter((run) => run.scorer === 'judge').map((run) => run.judgeModel ?? '알 수 없음')),
+  ]
+  if (judges.length > 0) {
+    const differ = judges.length > 1 ? ' 심판이 서로 달라 점수의 절대값을 직접 비교하기 어렵습니다.' : ''
+    out.push(
+      `> LLM 심사(judge) 점수는 심사 모델의 편향(자기 모델 선호 등)이 섞일 수 있습니다. 심판 모델: ${judges.join(', ')}.${differ}`,
+      '',
+    )
   }
   return out.join('\n')
 }

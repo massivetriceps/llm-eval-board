@@ -55,6 +55,21 @@ function buildLabels(list: CompareRun[]): Map<string, string> {
   return labels
 }
 
+// 차트용 짧은 이름: 프롬프트가 모두 같으면 모델 이름만 쓴다(긴 이름이 축·범례에서 겹치는 문제 방지)
+function buildChartLabels(list: CompareRun[], full: Map<string, string>): Map<string, string> {
+  const promptKeys = new Set(list.map((run) => `${run.prompt.name}@${run.prompt.version}`))
+  if (promptKeys.size > 1) return full
+  const models = list.map((run) => run.modelConfig.label)
+  const labels = new Map<string, string>()
+  list.forEach((run, index) => {
+    const duplicates = models.filter((name) => name === models[index]).length > 1
+    labels.set(run.id, duplicates ? `${models[index]} #${index + 1}` : models[index])
+  })
+  return labels
+}
+
+const truncate = (value: string, max = 14) => (value.length > max ? `${value.slice(0, max - 1)}…` : value)
+
 export function ComparePage() {
   const workspaceId = useWorkspaceId()
   const [params] = useSearchParams()
@@ -93,17 +108,23 @@ export function ComparePage() {
 
 function CompareView({ data, error }: { data: CompareResponse; error: string | null }) {
   const labels = useMemo(() => buildLabels(data.runs), [data.runs])
+  const chartLabels = useMemo(() => buildChartLabels(data.runs, labels), [data.runs, labels])
   const colors = new Map(data.runs.map((run, index) => [run.id, RUN_COLORS[index % RUN_COLORS.length]]))
   const running = data.runs.some((run) => isActive(run.status))
   const scored = data.runs.some((run) => run.metrics.overallScore !== null)
+  // 심판 모델이 다르거나 채점 방식이 섞이면 점수의 절대값을 직접 비교하기 어렵다
+  const judgeNames = [
+    ...new Set(data.runs.filter((run) => run.scorer === 'judge').map((run) => run.judgeModel ?? '알 수 없음')),
+  ]
+  const mixedScoring = new Set(data.runs.map((run) => run.scorer)).size > 1
 
   const scoreData = data.runs.map((run) => ({
     id: run.id,
-    name: labels.get(run.id) ?? run.id,
+    name: chartLabels.get(run.id) ?? run.id,
     score: run.metrics.overallScore === null ? 0 : Math.round(run.metrics.overallScore * 1000) / 10,
   }))
   const latencyData = data.runs.map((run) => ({
-    name: labels.get(run.id) ?? run.id,
+    name: chartLabels.get(run.id) ?? run.id,
     p50: run.metrics.p50LatencyMs,
     p95: run.metrics.p95LatencyMs,
   }))
@@ -117,6 +138,9 @@ function CompareView({ data, error }: { data: CompareResponse; error: string | n
         <div className="mt-1 flex items-center gap-3">
           <h1 className="text-xl font-bold">실행 비교</h1>
           <span className="text-sm text-slate-500">데이터셋: {data.runs[0].dataset.name}</span>
+          {judgeNames.length === 1 && !mixedScoring && (
+            <span className="text-sm text-slate-500">심판: {judgeNames[0]}</span>
+          )}
           {running && <span className="text-sm text-blue-600">진행 중인 실행이 있어 자동으로 갱신됩니다</span>}
           <div className="ml-auto flex gap-2">
             <button
@@ -137,6 +161,13 @@ function CompareView({ data, error }: { data: CompareResponse; error: string | n
         </div>
       </div>
       {error && <ErrorBox message={error} />}
+      {(mixedScoring || judgeNames.length > 1) && (
+        <p className="rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          {mixedScoring
+            ? '채점 방식이 서로 달라 점수를 직접 비교하기 어렵습니다.'
+            : `심판 모델이 서로 다릅니다(${judgeNames.join(', ')}). 심판마다 점수를 주는 후한 정도가 달라서, 점수의 절대값보다 순위와 상대 차이를 보세요.`}
+        </p>
+      )}
       {data.items.length > 0 && data.items.length < 30 && (
         <p className="rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-800">
           질문이 {data.items.length}개뿐이라 작은 점수 차이는 우연일 수 있습니다. 질문 수를 늘려서 다시 확인해 보세요.
@@ -154,7 +185,7 @@ function CompareView({ data, error }: { data: CompareResponse; error: string | n
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={scoreData} margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} />
+                <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} tickFormatter={(v: string) => truncate(v)} height={32} />
                 <YAxis domain={[0, 100]} unit="%" tick={{ fontSize: 11 }} />
                 <Tooltip formatter={(value) => `${String(value)}%`} />
                 <Bar dataKey="score" name="정답률">
@@ -170,7 +201,7 @@ function CompareView({ data, error }: { data: CompareResponse; error: string | n
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={latencyData} margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} tickFormatter={(v: string) => truncate(v)} height={32} />
               <YAxis tickFormatter={(value: number) => formatMs(value)} tick={{ fontSize: 11 }} />
               <Tooltip formatter={(value) => formatMs(Number(value))} />
               <Legend />
@@ -181,8 +212,8 @@ function CompareView({ data, error }: { data: CompareResponse; error: string | n
         </ChartCard>
         {scored && (
           <ChartCard title="비용 대비 점수 (왼쪽 위일수록 저렴하고 정확)" wide>
-            <ResponsiveContainer width="100%" height={280}>
-              <ScatterChart margin={{ top: 8, right: 16, bottom: 24, left: 0 }}>
+            <ResponsiveContainer width="100%" height={320}>
+              <ScatterChart margin={{ top: 8, right: 16, bottom: 28, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis
                   type="number"
@@ -190,18 +221,18 @@ function CompareView({ data, error }: { data: CompareResponse; error: string | n
                   name="비용"
                   tickFormatter={(value: number) => formatUsd(value)}
                   tick={{ fontSize: 11 }}
-                  label={{ value: '총 비용', position: 'insideBottom', offset: -12, fontSize: 12 }}
+                  label={{ value: '총 비용', position: 'insideBottom', offset: -16, fontSize: 12 }}
                 />
                 <YAxis type="number" dataKey="y" name="점수" domain={[0, 100]} unit="%" tick={{ fontSize: 11 }} />
                 <Tooltip
                   cursor={{ strokeDasharray: '3 3' }}
                   formatter={(value, name) => (name === '비용' ? formatUsd(Number(value)) : `${String(value)}%`)}
                 />
-                <Legend />
+                <Legend verticalAlign="bottom" wrapperStyle={{ paddingTop: 16, fontSize: 12 }} />
                 {data.runs.map((run) => (
                   <Scatter
                     key={run.id}
-                    name={labels.get(run.id)}
+                    name={chartLabels.get(run.id)}
                     data={
                       run.metrics.overallScore === null
                         ? []
@@ -243,6 +274,11 @@ function RunHeader({ run, label, color }: { run: CompareRun; label: string; colo
         <StatusBadge status={run.status} />
         {run.usesDocument && <span className="rounded bg-violet-100 px-1 text-xs text-violet-700">RAG</span>}
       </div>
+      {run.scorer === 'judge' && (
+        <div className="mt-0.5 text-xs font-normal normal-case tracking-normal text-slate-500">
+          심판: {run.judgeModel ?? '알 수 없음'}
+        </div>
+      )}
     </div>
   )
 }

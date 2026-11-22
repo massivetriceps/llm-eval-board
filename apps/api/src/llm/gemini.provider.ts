@@ -13,7 +13,12 @@ export class GeminiProvider implements LlmProvider {
         'GEMINI_API_KEY 가 설정되지 않았습니다.',
       );
     }
-    this.client ??= new GoogleGenAI({ apiKey });
+    // 프리뷰·신규 모델(gemini-3.1-pro-preview 등)은 v1beta 에만 노출되는 경우가 많다.
+    // GEMINI_API_VERSION 으로 덮어쓸 수 있다.
+    this.client ??= new GoogleGenAI({
+      apiKey,
+      httpOptions: { apiVersion: process.env.GEMINI_API_VERSION ?? 'v1beta' },
+    });
     return this.client;
   }
 

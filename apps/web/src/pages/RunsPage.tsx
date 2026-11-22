@@ -204,6 +204,9 @@ function RunRow({
       <td className={td}>
         {SCORER_LABELS[run.scorer]}
         {run.documentId && <span className="ml-1 rounded bg-violet-100 px-1 text-xs text-violet-700">RAG</span>}
+        {run.scorer === 'judge' && run.judgeModel && (
+          <div className="text-xs text-slate-400">심판: {run.judgeModel}</div>
+        )}
       </td>
       <td className={td}>
         <ProgressBar progress={run.progress} />

@@ -191,10 +191,17 @@ export class RunsService {
       }),
     ]);
     const byRun = new Map(aggregates.map((row) => [row.runId, row]));
+    const judgeLabels = await this.judgeLabelMap(
+      workspaceId,
+      runs.map((run) => run.judgeModelConfigId),
+    );
     return runs.map((run) => {
       const aggregate = byRun.get(run.id);
       return {
         ...this.withProgress(run, counts.get(run.id)),
+        judgeModel: run.judgeModelConfigId
+          ? (judgeLabels.get(run.judgeModelConfigId) ?? null)
+          : null,
         // 목록 화면용 요약. 자세한 값은 상세 조회에 있다
         summary: {
           avgScore: aggregate?._avg.score ?? null,
@@ -285,6 +292,10 @@ export class RunsService {
       items.set(result.itemId, entry);
     }
 
+    const judgeLabels = await this.judgeLabelMap(
+      workspaceId,
+      runs.map((run) => run.judgeModelConfigId),
+    );
     // 요청한 순서대로 돌려준다
     const byId = new Map(runs.map((run) => [run.id, run]));
     return {
@@ -295,6 +306,9 @@ export class RunsService {
           id: run.id,
           status: run.status,
           scorer: run.scorer,
+          judgeModel: run.judgeModelConfigId
+            ? (judgeLabels.get(run.judgeModelConfigId) ?? null)
+            : null,
           topK: run.topK,
           usesDocument: run.documentId !== null,
           dataset: run.dataset,
@@ -314,6 +328,9 @@ export class RunsService {
     });
     if (!run) throw new NotFoundException('실행을 찾을 수 없습니다.');
 
+    const judgeLabels = await this.judgeLabelMap(workspaceId, [
+      run.judgeModelConfigId,
+    ]);
     const [counts, aggregate, hitCount, hitTotal] = await Promise.all([
       this.countsByRun([id]),
       this.prisma.runResult.aggregate({
@@ -333,6 +350,9 @@ export class RunsService {
     ]);
     return {
       ...this.withProgress(run, counts.get(id)),
+      judgeModel: run.judgeModelConfigId
+        ? (judgeLabels.get(run.judgeModelConfigId) ?? null)
+        : null,
       summary: {
         inputTokens: aggregate._sum.inputTokens ?? 0,
         outputTokens: aggregate._sum.outputTokens ?? 0,
@@ -403,6 +423,17 @@ export class RunsService {
       where: { id, workspaceId, status: { notIn: ['PENDING', 'RUNNING'] } },
     });
     if (count === 0) throw new ConflictException('실행 상태가 바뀌어 삭제하지 못했습니다.');
+  }
+
+  // 심판 모델 id -> 표시 이름. judgeModelConfigId 는 FK 가 아니라서 include 대신 따로 조회한다
+  private async judgeLabelMap(workspaceId: string, ids: Array<string | null>) {
+    const unique = [...new Set(ids.filter((id): id is string => id !== null))];
+    if (unique.length === 0) return new Map<string, string>();
+    const rows = await this.prisma.modelConfig.findMany({
+      where: { id: { in: unique }, workspaceId },
+      select: { id: true, label: true },
+    });
+    return new Map(rows.map((row) => [row.id, row.label]));
   }
 
   private async countsByRun(runIds: string[]) {
