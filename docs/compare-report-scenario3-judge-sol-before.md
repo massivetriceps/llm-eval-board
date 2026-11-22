@@ -1,14 +1,14 @@
 # LLM 평가 비교 리포트
 
 - 데이터셋: open-20b (질문 20개)
-- 생성 시각: 2026-11-21T14:24:56.367Z
+- 생성 시각: 2026-11-22T06:05:12.439Z
 
 ## 실행 구성
 
-- **GPT-6.1 Sol · open-간결 v1**: openai/gpt-6.1-sol, 프롬프트 open-간결 v1, 채점 judge
-- **Gemini 3.1 Pro · open-간결 v1**: gemini/gemini-3.1-pro-preview, 프롬프트 open-간결 v1, 채점 judge
-- **GPT-6.1 Terra · open-간결 v1**: openai/gpt-6.1-terra, 프롬프트 open-간결 v1, 채점 judge
-- **Gemini 3.8 Flash · open-간결 v1**: gemini/gemini-3.8-flash, 프롬프트 open-간결 v1, 채점 judge
+- **GPT-6.1 Sol · open-간결 v1**: openai/gpt-6.1-sol, 프롬프트 open-간결 v1, 채점 judge (심판: GPT-6.1 Sol)
+- **Gemini 3.1 Pro · open-간결 v1**: gemini/gemini-3.1-pro-preview, 프롬프트 open-간결 v1, 채점 judge (심판: GPT-6.1 Sol)
+- **GPT-6.1 Terra · open-간결 v1**: openai/gpt-6.1-terra, 프롬프트 open-간결 v1, 채점 judge (심판: GPT-6.1 Sol)
+- **Gemini 3.8 Flash · open-간결 v1**: gemini/gemini-3.8-flash, 프롬프트 open-간결 v1, 채점 judge (심판: GPT-6.1 Sol)
 
 ## 지표 요약
 
@@ -53,4 +53,4 @@
 
 > 주의: 질문이 20개뿐이라 작은 점수 차이는 우연일 수 있습니다. 결론을 내리기 전에 질문 수를 늘려 다시 확인하세요.
 
-> LLM 심사(judge) 점수는 심사 모델의 편향(자기 모델 선호 등)이 섞일 수 있습니다.
+> LLM 심사(judge) 점수는 심사 모델의 편향(자기 모델 선호 등)이 섞일 수 있습니다. 심판 모델: GPT-6.1 Sol.
